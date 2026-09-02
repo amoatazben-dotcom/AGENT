@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { FastifyRequest, FastifyReply } from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import * as crypto from "crypto";
@@ -28,23 +28,66 @@ const coordinator = new AgentCoordinator({
   workspaceBaseDir: "/tmp/agentforge-workspace",
 });
 
-// Connected WebSocket clients mapping runId -> Set of connections
-const subscribers = new Map<string, Set<any>>();
+// Connected WebSocket clients mapping conversationId -> Set of connections
+const subscribers = new Map<string, Set<{ socket: { send: (msg: string) => void } }>>();
+
+// ==========================================
+// In-memory session store (token -> userId)
+// ==========================================
+const sessionStore = new Map<string, string>(); // token -> userId
+
+// ==========================================
+// Auth Middleware
+// ==========================================
+async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return reply.status(401).send({ error: "Missing or invalid Authorization header." });
+  }
+  const token = authHeader.slice(7);
+  const userId = sessionStore.get(token);
+  if (!userId) {
+    return reply.status(401).send({ error: "Invalid or expired session token." });
+  }
+  // Attach userId to request for downstream handlers
+  (req as any).userId = userId;
+}
 
 async function main() {
-  await app.register(cors, { origin: "*" });
+  // Determine allowed CORS origins from env (comma-separated list)
+  const allowedOrigins = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
+    : ["http://localhost:3000", "http://localhost:5173", "http://localhost:8080"];
+
+  await app.register(cors, {
+    origin: (origin, cb) => {
+      // Allow requests with no origin (curl, mobile, etc.) or from the allowed list
+      if (!origin || allowedOrigins.includes(origin)) {
+        cb(null, true);
+      } else if (process.env.NODE_ENV !== "production") {
+        // In development, allow all origins but warn
+        app.log.warn(`[CORS] Allowing non-whitelisted origin in dev: ${origin}`);
+        cb(null, true);
+      } else {
+        cb(new Error(`CORS: Origin '${origin}' not allowed.`), false);
+      }
+    },
+    credentials: true,
+  });
   await app.register(websocket);
 
-  // Health Checks
+  // ==========================================
+  // Health Checks (public)
+  // ==========================================
   app.get("/health", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
   app.get("/ready", async () => ({ ready: true, services: ["ai-router", "database", "coordinator"] }));
 
   // ==========================================
-  // Auth Routes
+  // Auth Routes (public — no middleware)
   // ==========================================
   app.post("/api/v1/auth/register", async (req, reply) => {
     const parsed = AuthRegisterRequestSchema.safeParse(req.body);
-    if (!parsed.success) return reply.status(400).send(parsed.error);
+    if (!parsed.success) return reply.status(400).send({ error: "Validation failed", details: parsed.error.errors });
 
     const { email, password, name } = parsed.data;
     const existing = Array.from(db.memoryStore.users.values()).find((u) => u.email === email);
@@ -57,43 +100,63 @@ async function main() {
       email,
       name,
       passwordHash,
-      role: "user",
+      role: "user" as const,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     db.memoryStore.users.set(userId, user);
 
-    const token = generateToken(24);
-    const refreshToken = generateToken(32);
-    return { token, refreshToken, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
+    const token = generateToken(32);
+    const refreshToken = generateToken(48);
+    sessionStore.set(token, userId);
+
+    return {
+      token,
+      refreshToken,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    };
   });
 
   app.post("/api/v1/auth/login", async (req, reply) => {
     const parsed = AuthLoginRequestSchema.safeParse(req.body);
-    if (!parsed.success) return reply.status(400).send(parsed.error);
+    if (!parsed.success) return reply.status(400).send({ error: "Validation failed", details: parsed.error.errors });
 
     const { email, password } = parsed.data;
     const user = Array.from(db.memoryStore.users.values()).find((u) => u.email === email);
+    // Return identical error for both cases to avoid user enumeration
     if (!user) return reply.status(401).send({ error: "Invalid email or password" });
 
     const valid = await verifyPassword(password, user.passwordHash);
     if (!valid) return reply.status(401).send({ error: "Invalid email or password" });
 
-    const token = generateToken(24);
-    const refreshToken = generateToken(32);
-    return { token, refreshToken, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
+    const token = generateToken(32);
+    const refreshToken = generateToken(48);
+    sessionStore.set(token, user.id);
+
+    return {
+      token,
+      refreshToken,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    };
+  });
+
+  app.post("/api/v1/auth/logout", { preHandler: requireAuth }, async (req) => {
+    const authHeader = req.headers.authorization!;
+    const token = authHeader.slice(7);
+    sessionStore.delete(token);
+    return { success: true };
   });
 
   // ==========================================
-  // Agents Routes
+  // Agents Routes (protected)
   // ==========================================
-  app.get("/api/v1/agents", async () => {
+  app.get("/api/v1/agents", { preHandler: requireAuth }, async () => {
     return Array.from(db.memoryStore.agents.values());
   });
 
-  app.post("/api/v1/agents", async (req, reply) => {
+  app.post("/api/v1/agents", { preHandler: requireAuth }, async (req, reply) => {
     const parsed = CreateAgentRequestSchema.safeParse(req.body);
-    if (!parsed.success) return reply.status(400).send(parsed.error);
+    if (!parsed.success) return reply.status(400).send({ error: "Validation failed", details: parsed.error.errors });
 
     const id = crypto.randomUUID();
     const agent = {
@@ -106,41 +169,42 @@ async function main() {
     return agent;
   });
 
-  app.get("/api/v1/agents/:id", async (req, reply) => {
+  app.get("/api/v1/agents/:id", { preHandler: requireAuth }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const agent = db.memoryStore.agents.get(id);
     if (!agent) return reply.status(404).send({ error: "Agent not found" });
     return agent;
   });
 
-  app.put("/api/v1/agents/:id", async (req, reply) => {
+  app.put("/api/v1/agents/:id", { preHandler: requireAuth }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const existing = db.memoryStore.agents.get(id);
     if (!existing) return reply.status(404).send({ error: "Agent not found" });
 
     const parsed = UpdateAgentRequestSchema.safeParse(req.body);
-    if (!parsed.success) return reply.status(400).send(parsed.error);
+    if (!parsed.success) return reply.status(400).send({ error: "Validation failed", details: parsed.error.errors });
 
     const updated = { ...existing, ...parsed.data, updatedAt: new Date().toISOString() };
     db.memoryStore.agents.set(id, updated);
     return updated;
   });
 
-  app.delete("/api/v1/agents/:id", async (req, reply) => {
+  app.delete("/api/v1/agents/:id", { preHandler: requireAuth }, async (req, reply) => {
     const { id } = req.params as { id: string };
+    if (!db.memoryStore.agents.has(id)) return reply.status(404).send({ error: "Agent not found" });
     db.memoryStore.agents.delete(id);
     return { success: true };
   });
 
   // ==========================================
-  // Conversations & Messages
+  // Conversations & Messages (protected)
   // ==========================================
-  app.get("/api/v1/conversations", async () => {
+  app.get("/api/v1/conversations", { preHandler: requireAuth }, async () => {
     return Array.from(db.memoryStore.conversations.values());
   });
 
-  app.post("/api/v1/conversations", async (req) => {
-    const body = req.body as any;
+  app.post("/api/v1/conversations", { preHandler: requireAuth }, async (req) => {
+    const body = req.body as { title?: string; agentId?: string } | null;
     const id = crypto.randomUUID();
     const conversation = {
       id,
@@ -153,14 +217,14 @@ async function main() {
     return conversation;
   });
 
-  app.get("/api/v1/conversations/:id/messages", async (req) => {
+  app.get("/api/v1/conversations/:id/messages", { preHandler: requireAuth }, async (req) => {
     const { id } = req.params as { id: string };
     return Array.from(db.memoryStore.messages.values()).filter((m) => m.conversationId === id);
   });
 
-  app.post("/api/v1/messages", async (req, reply) => {
+  app.post("/api/v1/messages", { preHandler: requireAuth }, async (req, reply) => {
     const parsed = SendMessageRequestSchema.safeParse(req.body);
-    if (!parsed.success) return reply.status(400).send(parsed.error);
+    if (!parsed.success) return reply.status(400).send({ error: "Validation failed", details: parsed.error.errors });
 
     const { conversationId, content, agentId } = parsed.data;
 
@@ -179,6 +243,10 @@ async function main() {
     const conversation = db.memoryStore.conversations.get(conversationId);
     const targetAgentId = agentId || conversation?.agentId || "agent-default-1";
     const agent = db.memoryStore.agents.get(targetAgentId) || Array.from(db.memoryStore.agents.values())[0];
+
+    if (!agent) {
+      return reply.status(500).send({ error: "No agent available to process the message." });
+    }
 
     // Create a Run
     const runId = crypto.randomUUID();
@@ -204,16 +272,20 @@ async function main() {
         for (const conn of subs) {
           try {
             conn.socket.send(msg);
-          } catch {}
+          } catch {
+            // connection may be closed
+          }
         }
       }
     });
 
-    // Run coordinator asynchronously in background
+    // Build conversation history
     const history = Array.from(db.memoryStore.messages.values())
       .filter((m) => m.conversationId === conversationId)
-      .map((m) => ({ role: m.role as any, content: m.content }));
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
+    // Run coordinator asynchronously in background
     coordinator
       .executeRun(run as any, agent, history)
       .then((finalAnswer) => {
@@ -227,23 +299,40 @@ async function main() {
         });
       })
       .catch((err) => {
-        console.error("Run failed:", err);
+        app.log.error({ err }, "Run failed");
       });
 
     return { runId, message: userMessage };
   });
 
   // ==========================================
-  // Approvals Routes
+  // Runs (protected)
   // ==========================================
-  app.get("/api/v1/approvals", async () => {
+  app.get("/api/v1/runs/:runId", { preHandler: requireAuth }, async (req, reply) => {
+    const { runId } = req.params as { runId: string };
+    const run = db.memoryStore.runs.get(runId);
+    if (!run) return reply.status(404).send({ error: "Run not found" });
+    return run;
+  });
+
+  app.post("/api/v1/runs/:runId/cancel", { preHandler: requireAuth }, async (req, reply) => {
+    const { runId } = req.params as { runId: string };
+    const cancelled = coordinator.cancelRun(runId);
+    if (!cancelled) return reply.status(404).send({ error: "Run not found or already finished" });
+    return { success: true };
+  });
+
+  // ==========================================
+  // Approvals Routes (protected)
+  // ==========================================
+  app.get("/api/v1/approvals", { preHandler: requireAuth }, async () => {
     return Array.from(db.memoryStore.approvals.values());
   });
 
-  app.post("/api/v1/approvals/:id/resolve", async (req, reply) => {
+  app.post("/api/v1/approvals/:id/resolve", { preHandler: requireAuth }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const parsed = ResolveApprovalRequestSchema.safeParse(req.body);
-    if (!parsed.success) return reply.status(400).send(parsed.error);
+    if (!parsed.success) return reply.status(400).send({ error: "Validation failed", details: parsed.error.errors });
 
     const success = coordinator.resolveApproval(id, parsed.data.decision);
     if (!success) return reply.status(404).send({ error: "Approval not found or already resolved" });
@@ -252,21 +341,21 @@ async function main() {
   });
 
   // ==========================================
-  // Automations Routes
+  // Automations Routes (protected)
   // ==========================================
-  app.get("/api/v1/automations", async () => {
+  app.get("/api/v1/automations", { preHandler: requireAuth }, async () => {
     return Array.from(db.memoryStore.automations.values());
   });
 
-  app.post("/api/v1/automations", async (req, reply) => {
+  app.post("/api/v1/automations", { preHandler: requireAuth }, async (req, reply) => {
     const parsed = CreateAutomationRequestSchema.safeParse(req.body);
-    if (!parsed.success) return reply.status(400).send(parsed.error);
+    if (!parsed.success) return reply.status(400).send({ error: "Validation failed", details: parsed.error.errors });
 
     const id = crypto.randomUUID();
     const automation = {
       ...parsed.data,
       id,
-      lastRunAt: null,
+      lastRunAt: null as string | null,
       nextRunAt: new Date(Date.now() + 3600000).toISOString(),
       lastStatus: "scheduled",
       createdAt: new Date().toISOString(),
@@ -276,7 +365,7 @@ async function main() {
     return automation;
   });
 
-  app.post("/api/v1/automations/:id/run", async (req, reply) => {
+  app.post("/api/v1/automations/:id/run", { preHandler: requireAuth }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const auto = db.memoryStore.automations.get(id);
     if (!auto) return reply.status(404).send({ error: "Automation not found" });
@@ -288,21 +377,21 @@ async function main() {
   });
 
   // ==========================================
-  // Computer Viewer & Actions
+  // Computer Viewer & Actions (protected)
   // ==========================================
-  app.get("/api/v1/computers", async () => {
+  app.get("/api/v1/computers", { preHandler: requireAuth }, async () => {
     return Array.from(db.memoryStore.computerSessions.values());
   });
 
-  app.post("/api/v1/computers/:id/action", async (req, reply) => {
+  app.post("/api/v1/computers/:id/action", { preHandler: requireAuth }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const parsed = ComputerActionSchema.safeParse(req.body);
-    if (!parsed.success) return reply.status(400).send(parsed.error);
+    if (!parsed.success) return reply.status(400).send({ error: "Validation failed", details: parsed.error.errors });
 
     const session = db.memoryStore.computerSessions.get(id) || {
       id,
       status: "running",
-      activeUrl: parsed.data.url || "https://openai.com",
+      activeUrl: parsed.data.url || "about:blank",
       cursorX: parsed.data.x || 120,
       cursorY: parsed.data.y || 240,
       lastAction: parsed.data.action,
@@ -313,18 +402,34 @@ async function main() {
       session.activeUrl = parsed.data.url;
     }
     session.lastAction = `${parsed.data.action}: ${parsed.data.url || parsed.data.text || ""}`;
+    session.updatedAt = new Date().toISOString();
     db.memoryStore.computerSessions.set(id, session);
 
     return { success: true, session };
   });
 
   // ==========================================
-  // WebSocket Server (/ws)
+  // Models list (protected)
   // ==========================================
-  app.get("/ws", { websocket: true }, (connection) => {
+  app.get("/api/v1/models", { preHandler: requireAuth }, async () => {
+    return aiRouter.listAllModels();
+  });
+
+  // ==========================================
+  // WebSocket Server (/ws) — authenticated via query param token
+  // ==========================================
+  app.get("/ws", { websocket: true }, (connection, req) => {
+    // Authenticate via ?token=... query param (headers not supported in WS)
+    const token = (req.query as Record<string, string>)?.token;
+    const userId = token ? sessionStore.get(token) : null;
+    if (!userId) {
+      connection.socket.close(4001, "Unauthorized: provide a valid ?token= query parameter");
+      return;
+    }
+
     let activeConversationId: string | null = null;
 
-    connection.socket.on("message", async (rawMessage: any) => {
+    connection.socket.on("message", async (rawMessage: Buffer) => {
       try {
         const msg = JSON.parse(rawMessage.toString());
 
@@ -335,9 +440,7 @@ async function main() {
             subscribers.set(convId, new Set());
           }
           subscribers.get(convId)!.add(connection);
-          connection.socket.send(
-            JSON.stringify({ type: "subscribed", conversationId: convId })
-          );
+          connection.socket.send(JSON.stringify({ type: "subscribed", conversationId: convId }));
         } else if (msg.action === "resolve_approval" && msg.approvalId) {
           coordinator.resolveApproval(msg.approvalId, msg.decision);
         } else if (msg.action === "stop_run" && msg.runId) {
@@ -346,20 +449,24 @@ async function main() {
           connection.socket.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
         }
       } catch (err) {
-        console.error("WS error:", err);
+        app.log.error({ err }, "WebSocket message error");
       }
     });
 
     connection.socket.on("close", () => {
       if (activeConversationId && subscribers.has(activeConversationId)) {
         subscribers.get(activeConversationId)!.delete(connection);
+        // Clean up empty sets
+        if (subscribers.get(activeConversationId)!.size === 0) {
+          subscribers.delete(activeConversationId);
+        }
       }
     });
   });
 
   const port = parseInt(process.env.GATEWAY_PORT || process.env.PORT || "3000", 10);
   await app.listen({ port, host: "0.0.0.0" });
-  console.log(`[AgentForge Gateway] Running on http://0.0.0.0:${port}`);
+  app.log.info(`[AgentForge Gateway] Running on http://0.0.0.0:${port}`);
 }
 
 main().catch((err) => {

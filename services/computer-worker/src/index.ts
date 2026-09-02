@@ -19,7 +19,20 @@ interface ActiveSession {
 const sessions = new Map<string, ActiveSession>();
 
 async function main() {
-  await app.register(cors, { origin: "*" });
+  // Restrict to gateway service only — set CORS_ORIGINS env var to change
+  const allowedOrigins = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
+    : ["http://localhost:3000", "http://localhost:3001"];
+
+  await app.register(cors, {
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== "production") {
+        cb(null, true);
+      } else {
+        cb(new Error(`CORS: Origin '${origin}' not allowed`), false);
+      }
+    },
+  });
 
   app.get("/health", async () => ({ status: "ok", service: "computer-worker" }));
 
