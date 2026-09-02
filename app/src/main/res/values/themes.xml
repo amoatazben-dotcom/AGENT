@@ -1,5 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    AgentForge — App Theme
+    Copyright © 2025 Moataz Al-Alqami — Taiz, Yemen
+-->
 <resources>
+    <!-- Main dark theme for AgentForge -->
+    <style name="Theme.AgentForge" parent="android:Theme.Material.NoTitleBar">
+        <item name="android:colorPrimary">@color/brand_blue</item>
+        <item name="android:colorPrimaryDark">@color/brand_navy_dark</item>
+        <item name="android:colorAccent">@color/brand_cyan</item>
+        <item name="android:windowBackground">@color/surface_dark</item>
+        <item name="android:statusBarColor">@color/brand_navy_dark</item>
+        <item name="android:navigationBarColor">@color/surface_dark</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
 
-    <style name="Theme.MyApplication" parent="android:Theme.DeviceDefault.NoActionBar" />
+    <!-- Splash screen theme (shown before Compose loads) -->
+    <style name="Theme.AgentForge.Splash" parent="Theme.AgentForge">
+        <item name="android:windowBackground">@color/brand_navy_dark</item>
+    </style>
+
+    <!-- Alias kept for backward compatibility -->
+    <style name="Theme.MyApplication" parent="Theme.AgentForge" />
 </resources>

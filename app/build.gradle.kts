@@ -15,12 +15,24 @@ android {
 
   defaultConfig {
     applicationId = "com.aistudio.agentforge.xkrz"
-    minSdk = 24
+    // Android 8.0 Oreo (API 26) minimum — required for 64-bit ABI enforcement
+    minSdk = 26
     targetSdk = 36
     versionCode = 1
-    versionName = "1.0"
+    versionName = "1.0.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    // Restrict to 64-bit ABIs only (required for Google Play 64-bit policy)
+    ndk {
+      abiFilters += listOf("arm64-v8a", "x86_64")
+    }
+
+    // App metadata
+    buildConfigField("String", "APP_AUTHOR",    '"Moataz Al-Alqami"')
+    buildConfigField("String", "APP_COUNTRY",   '"Yemen"')
+    buildConfigField("String", "APP_CITY",      '"Taiz"')
+    buildConfigField("String", "COPYRIGHT",     '"\u00a9 2025 Moataz Al-Alqami — Taiz, Yemen. All rights reserved."')
   }
 
   signingConfigs {
@@ -47,7 +59,25 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    debug {
+      signingConfig = signingConfigs.getByName("debugConfig")
+      isDebuggable = true
+    }
+  }
+
+  // Produce one APK per 64-bit ABI for smaller download sizes
+  splits {
+    abi {
+      isEnable = true
+      reset()
+      include("arm64-v8a", "x86_64")
+      isUniversalApk = true  // also produce a fat universal APK
+    }
+  }
+
+  // Ensure Kotlin JVM target matches Java compile options
+  kotlinOptions {
+    jvmTarget = "11"
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11

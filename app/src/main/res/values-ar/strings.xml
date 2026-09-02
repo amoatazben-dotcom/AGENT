@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    AgentForge — Arabic String Resources (RTL)
+    الموارد العربية لتطبيق AgentForge
+    حقوق الملكية © 2025 معتز العلقمي — تعز، اليمن
+-->
 <resources>
     <string name="app_name">AgentForge</string>
+    <string name="app_author">معتز العلقمي</string>
+    <string name="app_copyright">© 2025 معتز العلقمي — تعز، اليمن</string>
+
+    <!-- التنقل -->
     <string name="chat">المحادثة</string>
     <string name="agents">الوكلاء</string>
     <string name="computer">الحاسوب</string>
@@ -8,4 +17,27 @@
     <string name="approvals">الموافقات</string>
     <string name="files">الملفات</string>
     <string name="settings">الإعدادات</string>
+
+    <!-- واجهة المستخدم -->
+    <string name="ok">حسناً</string>
+    <string name="cancel">إلغاء</string>
+    <string name="loading">جارٍ التحميل…</string>
+    <string name="error">خطأ</string>
+    <string name="retry">إعادة المحاولة</string>
+    <string name="send">إرسال</string>
+    <string name="new_conversation">محادثة جديدة</string>
+    <string name="type_message">اكتب رسالتك…</string>
+    <string name="approve">موافقة</string>
+    <string name="reject">رفض</string>
+    <string name="run_automation">تشغيل</string>
+    <string name="no_items">لا توجد عناصر بعد</string>
+
+    <!-- الإعدادات -->
+    <string name="settings_api_keys">مفاتيح API</string>
+    <string name="settings_gateway_url">عنوان الخادم</string>
+    <string name="settings_about">حول التطبيق</string>
+    <string name="settings_version">الإصدار</string>
+    <string name="settings_author">المطوّر</string>
+    <string name="settings_author_value">معتز العلقمي\nتعز، اليمن</string>
+    <string name="settings_license">الرخصة: MIT</string>
 </resources>

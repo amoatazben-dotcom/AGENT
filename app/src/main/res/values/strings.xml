@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    AgentForge — String Resources
+    Copyright © 2025 Moataz Al-Alqami — Taiz, Yemen
+-->
 <resources>
     <string name="app_name">AgentForge</string>
+    <string name="app_author">Moataz Al-Alqami</string>
+    <string name="app_copyright">© 2025 Moataz Al-Alqami — Taiz, Yemen</string>
+
+    <!-- Navigation -->
     <string name="chat">Chat</string>
     <string name="agents">Agents</string>
     <string name="computer">Computer</string>
@@ -8,4 +16,27 @@
     <string name="approvals">Approvals</string>
     <string name="files">Files</string>
     <string name="settings">Settings</string>
+
+    <!-- Common UI -->
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+    <string name="loading">Loading…</string>
+    <string name="error">Error</string>
+    <string name="retry">Retry</string>
+    <string name="send">Send</string>
+    <string name="new_conversation">New Conversation</string>
+    <string name="type_message">Type a message…</string>
+    <string name="approve">Approve</string>
+    <string name="reject">Reject</string>
+    <string name="run_automation">Run</string>
+    <string name="no_items">No items yet</string>
+
+    <!-- Settings -->
+    <string name="settings_api_keys">API Keys</string>
+    <string name="settings_gateway_url">Gateway URL</string>
+    <string name="settings_about">About</string>
+    <string name="settings_version">Version</string>
+    <string name="settings_author">Author</string>
+    <string name="settings_author_value">معتز العلقمي (Moataz Al-Alqami)\nتعز، اليمن (Taiz, Yemen)</string>
+    <string name="settings_license">License: MIT</string>
 </resources>

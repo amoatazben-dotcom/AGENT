@@ -1,5 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    AgentForge — Color Palette
+    Copyright © 2025 Moataz Al-Alqami — Taiz, Yemen
+-->
 <resources>
+    <!-- Primary Brand Colors (Deep Navy + Electric Blue) -->
+    <color name="brand_navy_dark">#0D1B2A</color>
+    <color name="brand_navy">#1B2B4B</color>
+    <color name="brand_blue">#1565C0</color>
+    <color name="brand_blue_light">#1E88E5</color>
+    <color name="brand_cyan">#00D4FF</color>
+    <color name="brand_purple">#7B2FFF</color>
+    <color name="brand_purple_light">#9C6FFF</color>
+
+    <!-- Surface Colors -->
+    <color name="surface_dark">#121212</color>
+    <color name="surface_card">#1E1E2E</color>
+    <color name="surface_elevated">#252535</color>
+
+    <!-- Text Colors -->
+    <color name="text_primary">#FFFFFFFF</color>
+    <color name="text_secondary">#B3FFFFFF</color>
+    <color name="text_disabled">#61FFFFFF</color>
+    <color name="text_on_brand">#FFFFFFFF</color>
+
+    <!-- Status Colors -->
+    <color name="status_success">#00C853</color>
+    <color name="status_warning">#FFD600</color>
+    <color name="status_error">#FF5252</color>
+    <color name="status_info">#40C4FF</color>
+
+    <!-- Legacy (keep for compat) -->
     <color name="purple_200">#FFBB86FC</color>
     <color name="purple_500">#FF6200EE</color>
     <color name="purple_700">#FF3700B3</color>

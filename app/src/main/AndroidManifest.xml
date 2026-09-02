@@ -1,9 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    AgentForge — AI Agent Platform for Android
+    ============================================
+    Copyright © 2025 Moataz Al-Alqami — Taiz, Yemen
+    All rights reserved.
+
+    Author  : Moataz Al-Alqami (معتز العلقمي)
+    Country : Yemen (اليمن)
+    City    : Taiz (تعز)
+
+    Unauthorized copying, modification, or distribution of this software,
+    via any medium, is strictly prohibited without the author's written consent.
+-->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Network permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Require 64-bit support — Android 8.0+ (API 26+) -->
+    <uses-sdk
+        android:minSdkVersion="26"
+        android:targetSdkVersion="36"
+        tools:overrideLibrary="androidx.core" />
 
     <application
         android:allowBackup="true"
@@ -13,16 +33,19 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:usesCleartextTraffic="true"
-        android:theme="@style/Theme.MyApplication">
+        android:usesCleartextTraffic="false"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:theme="@style/Theme.AgentForge">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.MyApplication">
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.AgentForge">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
