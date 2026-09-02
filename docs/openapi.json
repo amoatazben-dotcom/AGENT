@@ -1,0 +1,90 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "AgentForge API",
+    "version": "1.0.0",
+    "description": "Production-Ready AI Agent Platform API with Multi-Model AI Router, Real-time WebSocket, Computer Viewer, and Approvals."
+  },
+  "servers": [
+    { "url": "http://localhost:3000", "description": "Local Development Gateway" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Service health check",
+        "responses": { "200": { "description": "Healthy" } }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "summary": "Authenticate user",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": { "type": "string" },
+                  "password": { "type": "string" }
+                },
+                "required": ["email", "password"]
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "JWT tokens" } }
+      }
+    },
+    "/api/v1/agents": {
+      "get": {
+        "summary": "List all configured agents",
+        "responses": { "200": { "description": "List of agents" } }
+      },
+      "post": {
+        "summary": "Create a new agent",
+        "responses": { "200": { "description": "Created agent" } }
+      }
+    },
+    "/api/v1/conversations": {
+      "get": {
+        "summary": "List conversations",
+        "responses": { "200": { "description": "Conversations list" } }
+      },
+      "post": {
+        "summary": "Create a new conversation",
+        "responses": { "200": { "description": "Created conversation" } }
+      }
+    },
+    "/api/v1/messages": {
+      "post": {
+        "summary": "Send a user message and trigger agent run",
+        "responses": { "200": { "description": "Run created" } }
+      }
+    },
+    "/api/v1/approvals": {
+      "get": {
+        "summary": "List pending and historical human approvals",
+        "responses": { "200": { "description": "Approvals list" } }
+      }
+    },
+    "/api/v1/approvals/{id}/resolve": {
+      "post": {
+        "summary": "Approve or reject a pending tool execution",
+        "responses": { "200": { "description": "Approval resolved" } }
+      }
+    },
+    "/api/v1/computers": {
+      "get": {
+        "summary": "Get remote computer container status",
+        "responses": { "200": { "description": "Computer session status" } }
+      }
+    },
+    "/api/v1/automations": {
+      "get": {
+        "summary": "List scheduled automations",
+        "responses": { "200": { "description": "Automations list" } }
+      }
+    }
+  }
+}

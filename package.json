@@ -1,0 +1,24 @@
+{
+  "name": "agentforge-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production-Ready AI Agent Platform Monorepo",
+  "scripts": {
+    "build": "pnpm -r --filter=!apps/android run build",
+    "test": "pnpm -r --filter=!apps/android run test",
+    "dev": "pnpm -r --parallel run dev",
+    "db:migrate": "pnpm --filter=@agentforge/database run migrate",
+    "db:generate": "pnpm --filter=@agentforge/database run generate",
+    "start:gateway": "pnpm --filter=@agentforge/gateway run start",
+    "start:runtime": "pnpm --filter=@agentforge/runtime run start",
+    "start:worker": "pnpm --filter=@agentforge/computer-worker run start"
+  },
+  "packageManager": "pnpm@11.25.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "prisma",
+      "@prisma/engines"
+    ]
+  }
+}

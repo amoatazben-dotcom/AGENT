@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AgentForge</string>
+    <string name="chat">Chat</string>
+    <string name="agents">Agents</string>
+    <string name="computer">Computer</string>
+    <string name="automations">Automations</string>
+    <string name="approvals">Approvals</string>
+    <string name="files">Files</string>
+    <string name="settings">Settings</string>
+</resources>

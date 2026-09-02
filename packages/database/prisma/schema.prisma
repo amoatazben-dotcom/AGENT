@@ -1,0 +1,322 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String         @id @default(uuid())
+  email        String         @unique
+  passwordHash String
+  name         String
+  role         String         @default("user")
+  sessions     Session[]
+  agents       Agent[]
+  conversations Conversation[]
+  auditLogs    AuditLog[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@map("users")
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshToken String   @unique
+  userAgent    String?
+  ipAddress    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@map("sessions")
+}
+
+model Agent {
+  id               String          @id @default(uuid())
+  userId           String?
+  user             User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name             String
+  description      String          @default("")
+  icon             String          @default("smart_toy")
+  systemPrompt     String
+  primaryProvider  String          @default("gemini")
+  primaryModel     String          @default("gemini-1.5-flash")
+  fallbackProvider String?
+  fallbackModel    String?
+  temperature      Float           @default(0.7)
+  maxSteps         Int             @default(25)
+  approvalPolicy   String          @default("require_approval") // allow, deny, require_approval
+  permissions      Json            @default("{\"computerUse\":true,\"shell\":true,\"filesystem\":true,\"network\":true,\"automation\":true,\"subagents\":true}")
+  conversations    Conversation[]
+  runs             Run[]
+  automations      Automation[]
+  agentTools       AgentTool[]
+  memories         Memory[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@map("agents")
+}
+
+model AgentTool {
+  id        String   @id @default(uuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  toolName  String
+  enabled   Boolean  @default(true)
+  config    Json?
+  createdAt DateTime @default(now())
+
+  @@unique([agentId, toolName])
+  @@map("agent_tools")
+}
+
+model Conversation {
+  id        String      @id @default(uuid())
+  title     String
+  userId    String?
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  agentId   String
+  agent     Agent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages  Message[]
+  runs      Run[]
+  files     FileRecord[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@map("conversations")
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String       // user, assistant, system, tool
+  content        String
+  toolCalls      Json?
+  toolResultId   String?
+  createdAt      DateTime     @default(now())
+
+  @@map("messages")
+}
+
+model Run {
+  id             String            @id @default(uuid())
+  conversationId String
+  conversation   Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  agentId        String
+  agent          Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  status         String            // queued, preparing, running, waiting_for_tool, waiting_for_approval, completed, failed, cancelled
+  userPrompt     String
+  currentStep    Int               @default(0)
+  maxSteps       Int               @default(25)
+  tokensUsed     Int               @default(0)
+  costEstimate   Float             @default(0.0)
+  error          String?
+  runEvents      RunEvent[]
+  toolCalls      ToolCall[]
+  approvals      Approval[]
+  computerSessions ComputerSession[]
+  subagentRuns   SubagentRun[]
+  files          FileRecord[]
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime          @default(now())
+
+  @@map("runs")
+}
+
+model RunEvent {
+  id        String   @id @default(uuid())
+  runId     String
+  run       Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  seq       Int
+  type      String   // assistant.delta, tool.started, computer.frame, approval.created, etc.
+  payload   Json
+  createdAt DateTime @default(now())
+
+  @@index([runId, seq])
+  @@map("run_events")
+}
+
+model ToolCall {
+  id              String    @id @default(uuid())
+  runId           String
+  run             Run       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  toolName        String
+  arguments       Json
+  riskLevel       String    @default("medium")
+  status          String    // pending, running, completed, failed, blocked_approval
+  result          Json?
+  error           String?
+  executionTimeMs Int?
+  createdAt       DateTime  @default(now())
+
+  @@map("tool_calls")
+}
+
+model Approval {
+  id             String    @id @default(uuid())
+  runId          String
+  run            Run       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  conversationId String
+  toolName       String
+  arguments      Json
+  reason         String
+  riskLevel      String    // low, medium, high, critical
+  status         String    @default("pending") // pending, approved, rejected, expired, cancelled
+  decisionBy     String?
+  decisionAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@map("approvals")
+}
+
+model FileRecord {
+  id             String        @id @default(uuid())
+  name           String
+  path           String
+  mimeType       String
+  size           Int
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  runId          String?
+  run            Run?          @relation(fields: [runId], references: [id], onDelete: SetNull)
+  downloadUrl    String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@map("files")
+}
+
+model Automation {
+  id             String          @id @default(uuid())
+  name           String
+  description    String          @default("")
+  type           String          // one_time, cron, recurring, conditional
+  cronExpression String?
+  agentId        String
+  agent          Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  prompt         String
+  enabled        Boolean         @default(true)
+  lastRunAt      DateTime?
+  nextRunAt      DateTime?
+  lastStatus     String?
+  runs           AutomationRun[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@map("automations")
+}
+
+model AutomationRun {
+  id           String     @id @default(uuid())
+  automationId String
+  automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  status       String     // success, failed, running
+  result       String?
+  error        String?
+  createdAt    DateTime   @default(now())
+
+  @@map("automation_runs")
+}
+
+model Connector {
+  id          String           @id @default(uuid())
+  name        String
+  type        String           // http, oauth2, apikey, mcp, gmail, github, slack, notion
+  description String           @default("")
+  status      String           @default("disconnected")
+  config      Json             @default("{}")
+  tokens      ConnectorToken[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@map("connectors")
+}
+
+model ConnectorToken {
+  id           String    @id @default(uuid())
+  connectorId  String
+  connector    Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  accessToken  String    // Encrypted at rest
+  refreshToken String?   // Encrypted at rest
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@map("connector_tokens")
+}
+
+model ProviderConfig {
+  id           String   @id @default(uuid())
+  provider     String   @unique // openai, anthropic, gemini, grok, local
+  apiKey       String?  // Encrypted at rest
+  baseUrl      String?
+  defaultModel String?
+  enabled      Boolean  @default(true)
+  updatedAt    DateTime @updatedAt
+
+  @@map("provider_configs")
+}
+
+model Memory {
+  id        String   @id @default(uuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  type      String   // conversation, working, long_term, semantic
+  key       String
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([agentId, key])
+  @@map("memories")
+}
+
+model ComputerSession {
+  id                     String    @id @default(uuid())
+  runId                  String?
+  run                    Run?      @relation(fields: [runId], references: [id], onDelete: SetNull)
+  status                 String    @default("idle") // initializing, running, idle, busy, stopped, error
+  containerId            String?
+  activeUrl              String    @default("about:blank")
+  cursorX                Int       @default(0)
+  cursorY                Int       @default(0)
+  lastAction             String    @default("")
+  latestScreenshotBase64 String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@map("computer_sessions")
+}
+
+model SubagentRun {
+  id          String   @id @default(uuid())
+  parentRunId String
+  parentRun   Run      @relation(fields: [parentRunId], references: [id], onDelete: Cascade)
+  task        String
+  model       String?
+  status      String   @default("running")
+  result      String?
+  createdAt   DateTime @default(now())
+
+  @@map("subagent_runs")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  resource  String
+  details   Json
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}

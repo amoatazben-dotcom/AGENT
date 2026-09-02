@@ -1,0 +1,6 @@
+{
+  "name": "AgentForge",
+  "description": "Production-ready AI Agent platform with Multi-model Router, Computer Use, WebSocket streaming, and Human Approvals",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@agentforge/agent-core",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc -w"
+  },
+  "dependencies": {
+    "@agentforge/protocol": "workspace:*",
+    "@agentforge/ai-router": "workspace:*",
+    "@agentforge/tool-sdk": "workspace:*",
+    "@agentforge/database": "workspace:*",
+    "@agentforge/security": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "@types/node": "^20.12.7"
+  }
+}

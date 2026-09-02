@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Outer Neural Hexagon Shield centered in 66dp safe zone (x: 21-87, y: 21-87, center: 54, 54) -->
+    <path
+        android:pathData="M54,26 L78,39 L78,67 L54,80 L30,67 L30,39 Z"
+        android:strokeWidth="2.5"
+        android:strokeColor="#38BDF8"
+        android:fillColor="#00000000" />
+
+    <!-- Inner Core Background with Gradient -->
+    <path
+        android:pathData="M54,32 L72,43 L72,64 L54,74 L36,64 L36,43 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:angle="45"
+                android:startColor="#6366F1"
+                android:endColor="#8B5CF6"
+                android:type="linear" />
+        </aapt:attr>
+    </path>
+
+    <!-- Glowing Agent Brain / Spark Element -->
+    <path
+        android:pathData="M54,38 L57.5,49 L68,52 L57.5,56 L54,67 L50.5,56 L40,52 L50.5,49 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Node dots and connector beams -->
+    <path
+        android:pathData="M54,26 L54,32 M78,39 L72,43 M78,67 L72,64 M54,80 L54,74 M30,67 L36,64 M30,39 L36,43"
+        android:strokeWidth="2"
+        android:strokeColor="#38BDF8" />
+
+    <path
+        android:pathData="M54,23 A3,3 0 1,1 54,22.99"
+        android:fillColor="#38BDF8" />
+    <path
+        android:pathData="M81,37 A3,3 0 1,1 81,36.99"
+        android:fillColor="#38BDF8" />
+    <path
+        android:pathData="M81,69 A3,3 0 1,1 81,68.99"
+        android:fillColor="#38BDF8" />
+    <path
+        android:pathData="M54,83 A3,3 0 1,1 54,82.99"
+        android:fillColor="#38BDF8" />
+    <path
+        android:pathData="M27,69 A3,3 0 1,1 27,68.99"
+        android:fillColor="#38BDF8" />
+    <path
+        android:pathData="M27,37 A3,3 0 1,1 27,36.99"
+        android:fillColor="#38BDF8" />
+</vector>
