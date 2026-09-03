@@ -103,13 +103,30 @@ export function generateToken(length = 32): string {
 }
 
 /**
+ * Returns a masked representation, e.g. sk-••••••••••93xA.
+ * Never returns the full key.
+ */
+export function maskApiKey(apiKey: string): string {
+  if (!apiKey) return "";
+  const trimmed = apiKey.trim();
+  if (trimmed.length <= 8) return "••••••••";
+  const prefix = trimmed.startsWith("sk-") ? "sk-" : trimmed.slice(0, 3) + "-";
+  const last4 = trimmed.slice(-4);
+  return `${prefix}••••••••••${last4}`;
+}
+
+/**
  * Redacts known secret patterns from log strings to prevent accidental leaks.
  */
 export function redactSecrets(text: string): string {
   if (!text) return text;
   return text
-    .replace(/(Bearer\s+)[A-Za-z0-9_\-\.]{20,}/gi, "$1[REDACTED]")
-    .replace(/(sk-[A-Za-z0-9]{20,})/gi, "sk-[REDACTED]")
-    .replace(/(AIza[0-9A-Za-z-_]{35})/g, "AIza[REDACTED]")
+    .replace(/(Bearer\s+)[A-Za-z0-9_\-\.]{8,}/gi, "$1[REDACTED]")
+    .replace(/(sk-[A-Za-z0-9_\-]{4,})/gi, "sk-[REDACTED]")
+    .replace(/(sk-proj-[A-Za-z0-9_\-]{4,})/gi, "sk-proj-[REDACTED]")
+    .replace(/(sk-ant-[A-Za-z0-9_\-]{4,})/gi, "sk-ant-[REDACTED]")
+    .replace(/(AIza[0-9A-Za-z-_]{10,})/g, "AIza[REDACTED]")
+    .replace(/(xai-[A-Za-z0-9]{10,})/gi, "xai-[REDACTED]")
+    .replace(/(["']?(api[_-]?key|authorization|refresh[_-]?token|password|secret)["']?\s*[:=]\s*["']?)([^"',}\s]{6,})/gi, "$1[REDACTED]")
     .replace(/(key[=:]\s*)[^\s&"']{10,}/gi, "$1[REDACTED]");
 }

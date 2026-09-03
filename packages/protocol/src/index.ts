@@ -41,8 +41,17 @@ export type AuthResponse = z.infer<typeof AuthResponseSchema>;
 // ==========================================
 export const ModelProviderSchema = z.enum([
   "openai",
+  "openai_compatible",
   "anthropic",
   "gemini",
+  "xai",
+  "groq",
+  "mistral",
+  "openrouter",
+  "deepseek",
+  "ollama",
+  "lmstudio",
+  "custom",
   "grok",
   "local",
 ]);
@@ -381,6 +390,9 @@ export const WsEventEnvelopeSchema = z.object({
   payload: z.any(),
 });
 export type WsEventEnvelope = z.infer<typeof WsEventEnvelopeSchema>;
+
+// Provider config module (DB-backed providers, unified errors)
+export * from "./providers.js";
 
 // Client to Server WebSocket messages
 export const ClientWsMessageSchema = z.object({

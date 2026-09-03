@@ -56,6 +56,19 @@ export class AgentCoordinator {
         }
       }
     }
+    // Persist run events (restart-safe observability). Never throws.
+    try {
+      if (event.runId) {
+        (db.memoryStore.runEvents as Map<string, any>).set(event.eventId, {
+          id: event.eventId,
+          runId: event.runId,
+          seq: event.seq,
+          type: event.type,
+          payloadJson: JSON.stringify((event as any).payload ?? {}).slice(0, 20000),
+          createdAt: (event as any).timestamp || new Date().toISOString(),
+        });
+      }
+    } catch { /* persistence must not break streaming */ }
   }
 
   // ==========================================
@@ -93,9 +106,23 @@ export class AgentCoordinator {
   }
 
   // ==========================================
-  // Run Execution Loop
+  // Run Execution Loop (dynamic provider instances supported)
   // ==========================================
-  async executeRun(run: Run, agent: Agent, conversationHistory: CanonicalMessage[]): Promise<string> {
+  /**
+   * Execute a run. When `runtime` is provided, it uses pre-built provider
+   * instances resolved from DB ProviderConfigs (decrypted keys) instead of
+   * the env-based static registry. Usage tokens are accumulated into the run.
+   */
+  async executeRun(
+    run: Run,
+    agent: Agent,
+    conversationHistory: CanonicalMessage[],
+    runtime?: {
+      primary: import("@agentforge/ai-router").AIProvider;
+      fallback?: import("@agentforge/ai-router").AIProvider;
+      onFailover?: (err: Error) => void;
+    }
+  ): Promise<string> {
     const abortController = new AbortController();
     this.activeRuns.set(run.id, { abortController, run });
 
@@ -132,6 +159,8 @@ export class AgentCoordinator {
       }));
 
       let finalContent = "";
+      let promptTokens = 0;
+      let completionTokens = 0;
 
       while (run.currentStep < run.maxSteps && !abortController.signal.aborted) {
         run.currentStep++;
@@ -141,21 +170,21 @@ export class AgentCoordinator {
           status: "running",
         });
 
-        // Call AI Router with failover
+        // Call AI Router with failover (dynamic instance when available)
         let stepText = "";
         const toolCallsToExecute: Array<{ id: string; name: string; args: Record<string, any> }> = [];
 
-        for await (const event of this.aiRouter.chatWithFailover(
-          {
-            model: agent.primaryModel,
-            messages,
-            tools,
-            temperature: agent.temperature,
-          },
-          agent.primaryProvider,
-          agent.fallbackProvider,
-          agent.fallbackModel
-        )) {
+        const chatRequest = {
+          model: agent.primaryModel,
+          messages,
+          tools,
+          temperature: agent.temperature,
+        };
+        const stream: AsyncIterable<import("@agentforge/ai-router").AIEvent> = runtime?.primary
+          ? this.aiRouter.chatWithInstance(runtime.primary, chatRequest, runtime.fallback ? { provider: runtime.fallback, model: agent.fallbackModel, onFailover: runtime.onFailover } : undefined)
+          : this.aiRouter.chatWithFailover(chatRequest, agent.primaryProvider, agent.fallbackProvider, agent.fallbackModel);
+
+        for await (const event of stream) {
           if (event.type === "delta") {
             stepText += event.content;
             sendEvent("assistant.delta", { delta: event.content });
@@ -165,6 +194,14 @@ export class AgentCoordinator {
               name: event.name,
               args: event.arguments,
             });
+          } else if (event.type === "usage") {
+            promptTokens += event.promptTokens;
+            completionTokens += event.completionTokens;
+            (run as any).tokensUsed = ((run as any).tokensUsed || 0) + event.totalTokens;
+            (run as any).promptTokens = promptTokens;
+            (run as any).completionTokens = completionTokens;
+            db.memoryStore.runs.set(run.id, run);
+            sendEvent("run.status", { usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens } });
           }
         }
 
@@ -262,15 +299,58 @@ export class AgentCoordinator {
             },
             spawnSubagent: async (task, model) => {
               sendEvent("subagent.started", { task, model });
-              const subResult = `Subagent completed task: ${task}`;
-              sendEvent("subagent.completed", { task, result: subResult });
-              return subResult;
+              // Real nested execution: single LLM pass with no tools (bounded, no recursion).
+              try {
+                const subProvider = runtime?.primary || this.aiRouter.getProvider(agent.primaryProvider);
+                let out = "";
+                for await (const e of subProvider.chat({
+                  model: model || agent.primaryModel,
+                  messages: [
+                    { role: "system", content: agent.systemPrompt },
+                    { role: "user", content: task },
+                  ],
+                  temperature: agent.temperature,
+                })) {
+                  if (e.type === "delta") out += e.content;
+                }
+                const subResult = out || "Subagent completed with no output.";
+                try {
+                  (db.memoryStore.memories as Map<string, any>).set(crypto.randomUUID(), {
+                    id: crypto.randomUUID(),
+                    agentId: agent.id,
+                    conversationId: run.conversationId,
+                    kind: "subagent",
+                    content: `task: ${task}\nresult: ${subResult.slice(0, 4000)}`,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                  });
+                } catch { /* noop */ }
+                sendEvent("subagent.completed", { task, result: subResult });
+                return subResult;
+              } catch (err: any) {
+                sendEvent("subagent.completed", { task, error: err.message });
+                return `Subagent failed: ${err.message}`;
+              }
             },
           };
 
           const startTime = Date.now();
           const result = await tool.execute(toolContext, tc.args);
           const duration = Date.now() - startTime;
+
+          try {
+            (db.memoryStore.toolCalls as Map<string, any>).set(tc.id, {
+              id: tc.id,
+              runId: run.id,
+              toolName: tc.name,
+              argumentsJson: JSON.stringify(tc.args),
+              status: result.success ? "completed" : "failed",
+              resultJson: result.success ? JSON.stringify(result.data ?? null).slice(0, 20000) : undefined,
+              error: result.success ? undefined : result.error,
+              executionTimeMs: duration,
+              createdAt: new Date().toISOString(),
+            });
+          } catch { /* noop */ }
 
           if (result.success) {
             sendEvent("tool.completed", { tool: tc.name, duration, result: result.data });

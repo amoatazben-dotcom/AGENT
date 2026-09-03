@@ -77,6 +77,7 @@ fun AgentsScreen(
 
         if (showCreateDialog) {
             CreateAgentDialog(
+                viewModel = viewModel,
                 onDismiss = { showCreateDialog = false },
                 onConfirm = { newAgent ->
                     viewModel.createAgent(newAgent)
@@ -212,18 +213,40 @@ fun PermissionTag(text: String) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateAgentDialog(
+    viewModel: AgentViewModel,
     onDismiss: () -> Unit,
     onConfirm: (AgentModel) -> Unit
 ) {
     val strings = LocalStrings.current
+    val providers by viewModel.providers.collectAsState()
+    val enabledProviders = providers.filter { it.enabled }
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
-    var prompt by remember { mutableStateOf("You are an autonomous AI specialist equipped with container sandboxes and tools.") }
-    var selectedProvider by remember { mutableStateOf("gemini") }
-    var selectedModel by remember { mutableStateOf("gemini-1.5-flash") }
+    var prompt by remember { mutableStateOf("You are a helpful AI assistant.") }
+    var selectedProviderId by remember(enabledProviders) {
+        mutableStateOf(enabledProviders.firstOrNull { it.isDefault }?.id ?: enabledProviders.firstOrNull()?.id)
+    }
+    var selectedModel by remember { mutableStateOf("") }
+    var modelOptions by remember { mutableStateOf(listOf<String>()) }
     var approvalPolicy by remember { mutableStateOf("require_approval") }
+    var providerExpanded by remember { mutableStateOf(false) }
+    var modelExpanded by remember { mutableStateOf(false) }
+
+    val selectedProvider = enabledProviders.firstOrNull { it.id == selectedProviderId }
+    LaunchedEffect(selectedProviderId) {
+        val pid = selectedProviderId
+        if (pid != null) {
+            try {
+                modelOptions = viewModel.modelsForProvider(pid)
+                if (selectedModel.isBlank()) {
+                    selectedModel = selectedProvider?.defaultModel ?: modelOptions.firstOrNull() ?: ""
+                }
+            } catch (_: Exception) {}
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -255,23 +278,78 @@ fun CreateAgentDialog(
                     maxLines = 3,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                if (enabledProviders.isEmpty()) {
+                    Text(
+                        strings.noProvidersTitle,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(strings.configureProvider, style = MaterialTheme.typography.bodySmall)
+                } else {
+                    // Provider picker (REAL — from ProviderRepository)
+                    ExposedDropdownMenuBox(expanded = providerExpanded, onExpandedChange = { providerExpanded = it }) {
+                        OutlinedTextField(
+                            value = selectedProvider?.name ?: "",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text(strings.providerType) },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(providerExpanded) },
+                            modifier = Modifier.fillMaxWidth().menuAnchor()
+                        )
+                        ExposedDropdownMenu(expanded = providerExpanded, onDismissRequest = { providerExpanded = false }) {
+                            enabledProviders.forEach { p ->
+                                DropdownMenuItem(
+                                    text = { Text("${p.name} (${p.type})") },
+                                    onClick = {
+                                        selectedProviderId = p.id
+                                        selectedModel = p.defaultModel
+                                        providerExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    // Model picker (discovered models + manual entry)
+                    ExposedDropdownMenuBox(expanded = modelExpanded, onExpandedChange = { modelExpanded = it }) {
+                        OutlinedTextField(
+                            value = selectedModel,
+                            onValueChange = { selectedModel = it },
+                            label = { Text("${strings.defaultModel} (ID)") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(modelExpanded) },
+                            modifier = Modifier.fillMaxWidth().menuAnchor()
+                        )
+                        if (modelOptions.isNotEmpty()) {
+                            ExposedDropdownMenu(expanded = modelExpanded, onDismissRequest = { modelExpanded = false }) {
+                                modelOptions.forEach { m ->
+                                    DropdownMenuItem(
+                                        text = { Text(m) },
+                                        onClick = { selectedModel = m; modelExpanded = false }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (name.isNotBlank()) {
+                    if (name.isNotBlank() && selectedProvider != null) {
                         val newAgent = AgentModel(
                             name = name,
                             description = description,
                             systemPrompt = prompt,
-                            primaryProvider = selectedProvider,
+                            primaryProvider = selectedProvider.type,
                             primaryModel = selectedModel,
+                            primaryProviderId = selectedProvider.id,
                             approvalPolicy = approvalPolicy
                         )
                         onConfirm(newAgent)
                     }
-                }
+                },
+                enabled = name.isNotBlank() && selectedProvider != null
             ) {
                 Text(strings.createAgent)
             }

@@ -235,7 +235,8 @@ export const BrowserNavigateTool: AgentTool<{ url: string }> = {
   }),
   async execute(ctx, input) {
     try {
-      // Call computer-worker service or direct Playwright if available
+      // Call computer-worker service (real browser). No fake fallback:
+      // if the worker is down we report unavailability honestly.
       const workerUrl = process.env.COMPUTER_WORKER_URL || "http://localhost:3002";
       const res = await fetch(`${workerUrl}/api/browser/navigate`, {
         method: "POST",
@@ -244,27 +245,17 @@ export const BrowserNavigateTool: AgentTool<{ url: string }> = {
       });
 
       if (!res.ok) {
-        // Fallback: fetch directly to get page title and content
-        const pageRes = await fetch(input.url);
-        const html = await pageRes.text();
-        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-        const title = titleMatch ? titleMatch[1].trim() : input.url;
-
+        const text = await res.text().catch(() => "");
         return {
-          success: true,
-          data: {
-            title,
-            url: input.url,
-            status: "Navigated successfully (direct HTTP fetch)",
-            summary: html.slice(0, 4000),
-          },
+          success: false,
+          error: `Computer worker unavailable (HTTP ${res.status}). ${text.slice(0, 300)}`,
         };
       }
 
       const data = await res.json();
       return { success: true, data };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      return { success: false, error: `Computer worker unavailable: ${err.message}` };
     }
   },
 };
@@ -286,40 +277,41 @@ export const BrowserScreenshotTool: AgentTool<{ fullPage?: boolean }> = {
       });
 
       if (!res.ok) {
-        return {
-          success: true,
-          data: {
-            screenshot: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkWPjfDwAE4wHZw9yvWAAAAABJRU5ErkJggg==",
-            message: "Captured live container viewport frame",
-          },
-        };
+        const text = await res.text().catch(() => "");
+        return { success: false, error: `Computer worker unavailable (HTTP ${res.status}). ${text.slice(0, 300)}` };
       }
 
       const data = await res.json();
       return { success: true, data };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      return { success: false, error: `Computer worker unavailable: ${err.message}` };
     }
   },
 };
 
 export const ComputerStartTool: AgentTool<{ timeoutMinutes?: number }> = {
   name: "computer.start",
-  description: "Initialize an isolated Docker desktop/browser sandbox session for this run.",
+  description: "Initialize a browser sandbox session for this run via the computer-worker service.",
   riskLevel: "medium",
   inputSchema: z.object({
     timeoutMinutes: z.number().int().min(1).max(60).default(15),
   }),
   async execute(ctx) {
-    return {
-      success: true,
-      data: {
-        sessionId: `comp_${ctx.runId}`,
-        status: "running",
-        workspace: ctx.workspaceDir,
-        features: ["browser", "shell", "screenshots", "xvfb"],
-      },
-    };
+    try {
+      const workerUrl = process.env.COMPUTER_WORKER_URL || "http://localhost:3002";
+      const res = await fetch(`${workerUrl}/api/sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: ctx.runId }),
+      });
+      if (!res.ok) {
+        return { success: false, error: `Computer worker unavailable (HTTP ${res.status}).` };
+      }
+      const data = await res.json();
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: `Computer worker unavailable: ${err.message}` };
+    }
   },
 };
 

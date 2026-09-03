@@ -10,10 +10,12 @@ data class AgentModel(
     val description: String = "",
     val icon: String = "smart_toy",
     val systemPrompt: String,
-    val primaryProvider: String = "gemini",
-    val primaryModel: String = "gemini-1.5-flash",
+    val primaryProvider: String = "openai_compatible",
+    val primaryModel: String = "",
+    val primaryProviderId: String? = null,
     val fallbackProvider: String? = null,
     val fallbackModel: String? = null,
+    val fallbackProviderId: String? = null,
     val temperature: Float = 0.7f,
     val maxSteps: Int = 25,
     val approvalPolicy: String = "require_approval", // allow, deny, require_approval
@@ -124,4 +126,27 @@ data class ChatItem(
     val isStreaming: Boolean = false,
     val approval: ApprovalModel? = null,
     val timestamp: Long = System.currentTimeMillis()
+)
+
+// AI provider config (metadata only; key lives in SecureStore)
+data class ProviderModel(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val type: String, // openai, openai_compatible, anthropic, gemini, ollama, ...
+    val baseUrl: String,
+    val defaultModel: String = "",
+    val enabled: Boolean = true,
+    val isDefault: Boolean = false,
+    val status: String = "unknown",
+    val lastError: String? = null,
+    val latencyMs: Long? = null,
+    val hasApiKey: Boolean = false,
+    val maskedKey: String = ""
+)
+
+data class WorkspaceStatus(
+    val database: String = "Unknown",
+    val aiProvider: String = "Not configured",
+    val gateway: String = "Local",
+    val computerWorker: String = "Offline"
 )

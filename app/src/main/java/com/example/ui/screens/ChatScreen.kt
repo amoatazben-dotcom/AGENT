@@ -45,6 +45,7 @@ fun ChatScreen(viewModel: AgentViewModel) {
     val isWorking by viewModel.isAgentWorking.collectAsState()
     val workStatus by viewModel.currentWorkStatus.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
+    val needsProvider by viewModel.needsProviderSetup.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
     var showLogsSheet by remember { mutableStateOf(false) }
@@ -133,6 +134,17 @@ fun ChatScreen(viewModel: AgentViewModel) {
         }
 
         // Chat Message List
+        if (needsProvider) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(strings.noProvidersTitle, fontWeight = FontWeight.Bold)
+                    Text(strings.noProvidersSubtitle, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
         LazyColumn(
             state = listState,
             modifier = Modifier

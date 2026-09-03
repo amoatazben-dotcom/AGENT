@@ -53,13 +53,71 @@ AGENT/
 ├── packages/
 │   ├── agent-core/       # AgentCoordinator Engine
 │   ├── ai-router/        # Multi-provider Router (Gemini, OpenAI, Claude, Grok)
-│   ├── database/         # Typed In-Memory & Prisma DB Layer
-│   ├── protocol/         # Shared Schemas & Types
+│   ├── database/         # Persistent SQLite store (local-first) + Prisma schema (optional PG)
+│   ├── protocol/         # Shared Schemas & Types (incl. provider configs)
 │   ├── security/         # AES-256 Encryption & Scrypt Security
 │   └── tool-sdk/         # Tool Execution Engine
 └── services/
     └── computer-worker/  # Headless Browser Automation Service
 ```
+
+---
+
+## 🚀 Local Quick Start (no cloud / DB server required)
+
+AgentForge is **local-first**: the gateway persists to a local SQLite file
+(`agentforge.db`) and the Android app works against its own Room database plus
+your AI provider key. No PostgreSQL, no Redis, no cloud account needed.
+
+```bash
+# 1. Install (Node 22+ recommended; Node 24 works, uses built-in node:sqlite)
+pnpm install
+
+# 2. Build all TypeScript packages
+pnpm build
+
+# 3. Run unit tests + local end-to-end (mock upstream, test-only)
+pnpm test
+pnpm test:e2e
+
+# 4. Start the gateway (uses ./data/agentforge.db by default)
+pnpm start:gateway
+# health:  curl http://localhost:3000/health
+# ready:   curl http://localhost:3000/ready
+```
+
+Environment (optional, see `.env.example`):
+
+```bash
+cp .env.example .env
+# MASTER_ENCRYPTION_KEY (required in production, encrypts provider API keys):
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+### 📱 Android connection
+
+1. Install the app, open **Settings → AI Providers → Add Provider**.
+2. Pick a type (or `openai_compatible` / `custom`), enter **Base URL + API Key + Model**.
+3. Press **Test Connection** (real check: auth, latency, `/models` discovery).
+4. Create an **Agent** using the saved provider, open **Chat**, send a message.
+   - Gateway reachable → server run with tools/approvals, streamed over WebSocket.
+   - Gateway offline → **Local Workspace**: the device streams directly from the provider; everything is saved in Room and survives restarts.
+
+### 🤖 Provider examples (Base URL + your own key, keys never ship in the repo)
+
+| Provider   | Base URL                           | Notes                                  |
+|------------|------------------------------------|----------------------------------------|
+| OpenAI     | `https://api.openai.com/v1`        | preset                                 |
+| OpenRouter | `https://openrouter.ai/api/v1`     | any model ID, e.g. `deepseek-chat`     |
+| Groq       | `https://api.groq.com/openai/v1`   | preset                                 |
+| DeepSeek   | `https://api.deepseek.com/v1`      | preset                                 |
+| xAI        | `https://api.x.ai/v1`              | preset                                 |
+| Ollama     | `http://localhost:11434/v1`        | local; on emulator use `10.0.2.2`      |
+| LM Studio  | `http://localhost:1234/v1`         | local OpenAI-compatible server         |
+| Custom     | your server `/v1`                  | any OpenAI-compatible endpoint         |
+
+> If a provider has no `/models` endpoint you can type the Model ID manually.
+> Unencrypted `http://` outside localhost shows a warning in the app.
 
 ---
 

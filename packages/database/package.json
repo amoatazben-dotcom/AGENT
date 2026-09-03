@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "generate": "prisma generate",
-    "migrate": "prisma migrate dev"
+    "migrate": "prisma migrate dev",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@prisma/client": "^5.13.0"

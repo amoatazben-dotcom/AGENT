@@ -132,6 +132,10 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation(libs.androidx.room.ktx)
 
+  // Encrypted secrets (Android Keystore) + background automations
+  implementation(libs.security.crypto)
+  implementation(libs.work.runtime.ktx)
+
   // Dagger Hilt
   implementation(libs.hilt.android)
 

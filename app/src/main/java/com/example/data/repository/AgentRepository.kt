@@ -62,116 +62,69 @@ class AgentRepository @Inject constructor(
         }
 
     suspend fun seedDefaultDataIfEmpty() = withContext(Dispatchers.IO) {
+        // Seed ONLY when the database is completely empty. Never fabricate history.
+        if (agentDao.count() > 0) return@withContext
         val now = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
         val defaultAgent = AgentEntity(
             id = "agent-default-1",
-            name = "الوكيل التنفيذي الذاتي (Executive Agent)",
-            description = "منسق متعدد الأدوات للأبحاث، تصفح الويب، تنفيذ الأوامر، وإدارة الحاويات.",
+            name = "General Assistant",
+            description = "General-purpose agent. Configure an AI provider to start chatting.",
             icon = "smart_toy",
-            systemPrompt = "You are an executive autonomous AI agent equipped with browser, shell, and filesystem capabilities.",
-            primaryProvider = "gemini",
-            primaryModel = "gemini-1.5-flash",
+            systemPrompt = "You are a helpful AI assistant.",
+            primaryProvider = "openai_compatible",
+            primaryModel = "",
+            primaryProviderId = null,
+            fallbackProviderId = null,
+            fallbackModel = null,
             temperature = 0.7f,
             maxSteps = 25,
             approvalPolicy = "require_approval",
-            computerPermission = true,
-            shellPermission = true,
-            filesystemPermission = true,
-            networkPermission = true,
-            automationPermission = true,
-            subagentPermission = true
-        )
-        val coderAgent = AgentEntity(
-            id = "agent-coder-2",
-            name = "مهندس البرمجيات والطرفية (Code Engineer)",
-            description = "متخصص في تشغيل نصوص الطرفية، فحص الأكواد، واختبار المستودعات البرمجية.",
-            icon = "terminal",
-            systemPrompt = "You are a Principal Software Engineer executing code tasks inside container sandboxes.",
-            primaryProvider = "openai",
-            primaryModel = "gpt-4o",
-            temperature = 0.2f,
-            maxSteps = 30,
-            approvalPolicy = "require_approval",
-            computerPermission = true,
-            shellPermission = true,
-            filesystemPermission = true,
-            networkPermission = true,
-            automationPermission = true,
-            subagentPermission = true
-        )
-        val researchAgent = AgentEntity(
-            id = "agent-research-3",
-            name = "محلل البيانات والأبحاث (Research Specialist)",
-            description = "متخصص في جمع المعلومات من الويب، المقارنات العلمية، وتوليد تقارير Markdown مفصلة.",
-            icon = "search",
-            systemPrompt = "You are an autonomous research agent collecting, synthesizing, and formatting deep research.",
-            primaryProvider = "gemini",
-            primaryModel = "gemini-1.5-pro",
-            temperature = 0.4f,
-            maxSteps = 20,
-            approvalPolicy = "require_approval",
-            computerPermission = true,
+            computerPermission = false,
             shellPermission = false,
             filesystemPermission = true,
             networkPermission = true,
-            automationPermission = true,
-            subagentPermission = true
+            automationPermission = false,
+            subagentPermission = false
         )
-        agentDao.insertAgents(listOf(defaultAgent, coderAgent, researchAgent))
+        agentDao.insertAgents(listOf(defaultAgent))
+    }
 
-        val welcomeConv = ConversationEntity(
-            id = "conv-welcome-1",
-            title = "مهمة البحث والتصفح الذاتي",
-            agentId = defaultAgent.id,
-            createdAt = now
-        )
-        convDao.insertConversation(welcomeConv)
-
-        val sampleMsg = MessageEntity(
-            id = UUID.randomUUID().toString(),
-            conversationId = welcomeConv.id,
-            role = "assistant",
-            content = "مرحباً بك في **AgentForge**! أنا وكيلك الذكي المستقل، أعمل محلياً بالكامل عبر قاعدة بيانات Room ومجهز بأدوات التصفح، الطرفية، ونظام الملفات.\n\nيمكنك تجربة أحد الأوامر مثل:\n• «تصفح موقع OpenAI والتقط لقطة شاشة للحاسوب وانشئ ملف تقرير»\n• «قارن بين مكتبات الذكاء الاصطناعي»\n• «احذف الملف التجريبي (لاختبار الموافقة البشرية)»",
-            createdAt = now
-        )
-        msgDao.insertMessage(sampleMsg)
-
-        val initialLogs = listOf(
-            com.example.data.local.ExecutionLogEntity(
-                id = "log-init-1",
-                runId = "run-bootstrap-01",
-                conversationId = welcomeConv.id,
-                agentId = defaultAgent.id,
-                level = "info",
-                event = "system.boot",
-                message = "تم تشغيل المحرك المحلي لقاعدة بيانات Room وتجهيز طبقة الوكلاء المستقلة.",
-                details = "بيئة التشغيل: Sandbox محلي آمن مع دعم كامل للغة العربية",
-                timestamp = System.currentTimeMillis() - 360000
-            ),
-            com.example.data.local.ExecutionLogEntity(
-                id = "log-init-2",
-                runId = "run-bootstrap-01",
-                conversationId = welcomeConv.id,
-                agentId = defaultAgent.id,
-                level = "tool",
-                event = "tool.registered",
-                message = "تسجيل أدوات التصفح، الطرفية، نظام الملفات، وتوليد التقارير.",
-                details = "سياسة الأمان: اشتراط الموافقة البشرية على العمليات الحساسة",
-                timestamp = System.currentTimeMillis() - 180000
-            ),
-            com.example.data.local.ExecutionLogEntity(
-                id = "log-init-3",
-                runId = "run-bootstrap-01",
-                conversationId = welcomeConv.id,
-                agentId = defaultAgent.id,
-                level = "info",
-                event = "agent.ready",
-                message = "الوكيل جاهز لتلقي المهام محلياً وتنفيذها ذاتياً.",
-                details = "النماذج المعتمدة: Gemini 1.5 Pro / Flash مع محرك استدلال محلي",
-                timestamp = System.currentTimeMillis() - 60000
-            )
-        )
-        logDao.insertLogs(initialLogs)
+    suspend fun clearScope(scope: String) = withContext(Dispatchers.IO) {
+        when (scope) {
+            "conversations" -> {
+                convDao.deleteAllConversations()
+                msgDao.deleteAllMessages()
+            }
+            "execution" -> {
+                msgDao.deleteAllMessages()
+                approvalDao.deleteAllApprovals()
+                logDao.deleteAllLogs()
+                database.runDao().deleteAll()
+                database.runEventDao().deleteAll()
+                database.toolCallDao().deleteAll()
+                database.automationRunDao().deleteAll()
+                database.computerSessionDao().deleteAll()
+                database.fileDao().deleteAll()
+            }
+            "cache" -> {
+                database.providerModelDao().deleteAll()
+            }
+            "factory" -> {
+                convDao.deleteAllConversations()
+                msgDao.deleteAllMessages()
+                approvalDao.deleteAllApprovals()
+                logDao.deleteAllLogs()
+                agentDao.deleteAllAgents()
+                database.automationDao().deleteAll()
+                database.automationRunDao().deleteAll()
+                database.memoryDao().deleteAll()
+                database.providerDao().deleteAllProviders()
+                database.providerModelDao().deleteAll()
+                database.fileDao().deleteAll()
+                database.computerSessionDao().deleteAll()
+                seedDefaultDataIfEmpty()
+            }
+        }
     }
 
     suspend fun clearAndReseedDatabase() = withContext(Dispatchers.IO) {
@@ -191,6 +144,19 @@ class AgentRepository @Inject constructor(
     }
 
     suspend fun deleteAgent(id: String) = withContext(Dispatchers.IO) {
+        // Keep conversations: reassign to the default agent instead of violating the FK.
+        try {
+            val fallback = agentDao.getAgentById("agent-default-1")?.id
+                ?: agentDao.getAllOnce().firstOrNull { it.id != id }?.id
+            if (fallback != null) {
+                convDao.reassignAgent(id, fallback)
+            } else {
+                // No agent left: conversations cannot exist without an agent link target;
+                // delete them explicitly (FK has no SET NULL on purpose).
+                convDao.deleteAllConversations()
+                msgDao.deleteAllMessages()
+            }
+        } catch (_: Exception) {}
         agentDao.deleteAgent(id)
         try {
             api.deleteAgent(id)
@@ -207,21 +173,38 @@ class AgentRepository @Inject constructor(
         id
     }
 
+    suspend fun deleteConversation(id: String) = withContext(Dispatchers.IO) {
+        convDao.deleteConversation(id)
+        msgDao.clearConversationMessages(id)
+        logDao.clearLogsForConversation(id)
+        try {
+            api.deleteConversation(id)
+        } catch (_: Exception) {}
+    }
+
     suspend fun saveMessage(msg: MessageModel) = withContext(Dispatchers.IO) {
         msgDao.insertMessage(MessageEntity(msg.id, msg.conversationId, msg.role, msg.content, msg.createdAt))
     }
 
     suspend fun saveApproval(approval: ApprovalModel) = withContext(Dispatchers.IO) {
+        val argsJson = try {
+            org.json.JSONObject(approval.arguments.mapValues { it.value?.toString() ?: "" } as Map<String, String>).toString()
+        } catch (_: Exception) {
+            "{}"
+        }
         approvalDao.insertApproval(
             ApprovalEntity(
                 id = approval.id,
                 runId = approval.runId,
                 conversationId = approval.conversationId,
                 toolName = approval.toolName,
+                argumentsJson = argsJson,
                 reason = approval.reason,
                 riskLevel = approval.riskLevel,
                 status = approval.status,
-                createdAt = approval.createdAt
+                createdAt = approval.createdAt.ifBlank {
+                    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
+                }
             )
         )
     }
@@ -292,6 +275,9 @@ class AgentRepository @Inject constructor(
         systemPrompt = systemPrompt,
         primaryProvider = primaryProvider,
         primaryModel = primaryModel,
+        primaryProviderId = primaryProviderId,
+        fallbackProviderId = fallbackProviderId,
+        fallbackModel = fallbackModel,
         temperature = temperature,
         maxSteps = maxSteps,
         approvalPolicy = approvalPolicy,
@@ -311,6 +297,9 @@ class AgentRepository @Inject constructor(
         systemPrompt = systemPrompt,
         primaryProvider = primaryProvider,
         primaryModel = primaryModel,
+        primaryProviderId = primaryProviderId,
+        fallbackProviderId = fallbackProviderId,
+        fallbackModel = fallbackModel,
         temperature = temperature,
         maxSteps = maxSteps,
         approvalPolicy = approvalPolicy,

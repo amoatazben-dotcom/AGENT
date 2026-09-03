@@ -127,6 +127,34 @@ interface AppStrings {
     val logsFilterAll: String
     val noLogsTitle: String
     val noLogsDesc: String
+
+    // AI Providers (real configuration)
+    val providersTitle: String
+    val providersSubtitle: String
+    val addProvider: String
+    val editProvider: String
+    val deleteProvider: String
+    val testConnection: String
+    val saveProvider: String
+    val providerName: String
+    val providerType: String
+    val baseUrl: String
+    val apiKey: String
+    val defaultModel: String
+    val setDefault: String
+    val isDefault: String
+    val enabled: String
+    val refreshModels: String
+    val noProvidersTitle: String
+    val noProvidersSubtitle: String
+    val configureProvider: String
+    val connectionStatus: String
+    val httpWarning: String
+    val workspaceStatus: String
+    val resetConversations: String
+    val resetExecution: String
+    val resetCache: String
+    val factoryReset: String
 }
 
 object StringsArabic : AppStrings {
@@ -234,6 +262,33 @@ object StringsArabic : AppStrings {
     override val logsFilterAll = "الكل"
     override val noLogsTitle = "لا توجد سجلات بعد"
     override val noLogsDesc = "ستظهر أحداث انتقال الوكيل واستدعاء الأدوات هنا فورياً."
+
+    override val providersTitle = "مزودو الذكاء الاصطناعي"
+    override val providersSubtitle = "أضف Base URL + API Key + Model ثم اختبر الاتصال"
+    override val addProvider = "إضافة مزود"
+    override val editProvider = "تعديل المزود"
+    override val deleteProvider = "حذف المزود"
+    override val testConnection = "اختبار الاتصال"
+    override val saveProvider = "حفظ المزود"
+    override val providerName = "اسم المزود"
+    override val providerType = "نوع المزود"
+    override val baseUrl = "Base URL"
+    override val apiKey = "API Key"
+    override val defaultModel = "النموذج الافتراضي"
+    override val setDefault = "تعيين افتراضي"
+    override val isDefault = "افتراضي"
+    override val enabled = "مفعّل"
+    override val refreshModels = "تحديث النماذج"
+    override val noProvidersTitle = "لا يوجد مزود ذكاء اصطناعي"
+    override val noProvidersSubtitle = "أضف مزودك (OpenAI-Compatible / Ollama / LM Studio) لبدء المحادثة."
+    override val configureProvider = "إعداد المزود"
+    override val connectionStatus = "الحالة"
+    override val httpWarning = "تحذير: اتصال HTTP غير مشفر. استخدم HTTPS خارج الشبكة المحلية."
+    override val workspaceStatus = "حالة مساحة العمل"
+    override val resetConversations = "مسح المحادثات فقط"
+    override val resetExecution = "مسح بيانات التنفيذ"
+    override val resetCache = "مسح الكاش"
+    override val factoryReset = "إعادة ضبط المصنع (تحذير: يحذف المفاتيح)"
 }
 
 object StringsEnglish : AppStrings {
@@ -341,4 +396,31 @@ object StringsEnglish : AppStrings {
     override val logsFilterAll = "ALL"
     override val noLogsTitle = "No execution logs recorded yet"
     override val noLogsDesc = "Agent lifecycle and tool execution events will appear here in real-time."
+
+    override val providersTitle = "AI Providers"
+    override val providersSubtitle = "Add Base URL + API Key + Model, then test connection"
+    override val addProvider = "Add Provider"
+    override val editProvider = "Edit Provider"
+    override val deleteProvider = "Delete Provider"
+    override val testConnection = "Test Connection"
+    override val saveProvider = "Save Provider"
+    override val providerName = "Provider Name"
+    override val providerType = "Provider Type"
+    override val baseUrl = "Base URL"
+    override val apiKey = "API Key"
+    override val defaultModel = "Default Model"
+    override val setDefault = "Set Default"
+    override val isDefault = "Default"
+    override val enabled = "Enabled"
+    override val refreshModels = "Refresh Models"
+    override val noProvidersTitle = "No AI provider configured"
+    override val noProvidersSubtitle = "Add your provider (OpenAI-Compatible / Ollama / LM Studio) to start chatting."
+    override val configureProvider = "Configure Provider"
+    override val connectionStatus = "Status"
+    override val httpWarning = "Warning: unencrypted HTTP. Use HTTPS outside the local network."
+    override val workspaceStatus = "Workspace Status"
+    override val resetConversations = "Clear conversations only"
+    override val resetExecution = "Clear execution data"
+    override val resetCache = "Clear cache"
+    override val factoryReset = "Factory reset (warning: deletes keys)"
 }

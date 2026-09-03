@@ -8,6 +8,7 @@ import com.example.data.local.AgentStateDao
 import com.example.data.local.ApprovalDao
 import com.example.data.local.ConversationDao
 import com.example.data.local.ExecutionLogDao
+import com.example.data.local.MIGRATION_2_3
 import com.example.data.local.MessageDao
 import dagger.Module
 import dagger.Provides
@@ -34,7 +35,7 @@ object DatabaseModule {
             AgentDatabase::class.java,
             AgentDatabase.DATABASE_NAME
         )
-            .fallbackToDestructiveMigration()
+            .addMigrations(MIGRATION_2_3)
             .build()
     }
 

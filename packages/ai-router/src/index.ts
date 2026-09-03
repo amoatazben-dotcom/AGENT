@@ -1,188 +1,62 @@
-import { ModelProvider } from "@agentforge/protocol";
+/**
+ * AI Router — multi-provider with dynamic DB-backed registry.
+ *
+ * - Static env-based providers (backwards compatible).
+ * - NEW: OpenAICompatibleProvider (any Base URL + key + model).
+ * - NEW: AIProviderRegistry / AIProviderFactory building runtime instances
+ *   from ProviderConfig records (DB), with primary→fallback failover.
+ * - Claude tool_use parsing fixed (was dropping tool calls).
+ */
+import type { ModelProvider } from "@agentforge/protocol";
+import type { AIEvent, AIProvider, CanonicalMessage, ChatRequest, ModelInfo, ToolDefinition } from "./types.js";
+import { OpenAICompatibleProvider } from "./openai-compatible.js";
+import { throwForStatus, providerError, withRetry } from "./errors.js";
+import { normalizeBaseUrl } from "./base-url.js";
 
-export interface CanonicalMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string;
-  name?: string;
-  toolCallId?: string;
-  toolCalls?: Array<{
-    id: string;
-    name: string;
-    arguments: Record<string, any>;
-  }>;
-}
-
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, any>;
-}
-
-export interface ChatRequest {
-  model: string;
-  messages: CanonicalMessage[];
-  tools?: ToolDefinition[];
-  temperature?: number;
-  maxTokens?: number;
-  stream?: boolean;
-}
-
-export type AIEvent =
-  | { type: "delta"; content: string }
-  | { type: "tool_call"; id: string; name: string; arguments: Record<string, any> }
-  | { type: "usage"; promptTokens: number; completionTokens: number; totalTokens: number }
-  | { type: "done" };
-
-export interface ModelInfo {
-  id: string;
-  name: string;
-  provider: ModelProvider;
-  contextWindow: number;
-}
-
-export interface AIProvider {
-  provider: ModelProvider;
-  chat(request: ChatRequest): AsyncIterable<AIEvent>;
-  models(): Promise<ModelInfo[]>;
-}
+export type { AIEvent, AIProvider, CanonicalMessage, ChatRequest, ModelInfo, ToolDefinition };
+export * from "./openai-compatible.js";
+export * from "./base-url.js";
+export * from "./errors.js";
+export * from "./types.js";
 
 // ==========================================
-// OpenAI Provider
+// Preset defaults (Base URL only — NEVER keys)
 // ==========================================
-export class OpenAIProvider implements AIProvider {
-  provider: ModelProvider = "openai";
-  private apiKey: string;
-  private baseUrl: string;
+export const PROVIDER_PRESETS: Record<string, { type: string; baseUrl: string; label: string }> = {
+  openai: { type: "openai", baseUrl: "https://api.openai.com/v1", label: "OpenAI" },
+  anthropic: { type: "anthropic", baseUrl: "https://api.anthropic.com", label: "Anthropic" },
+  gemini: { type: "gemini", baseUrl: "https://generativelanguage.googleapis.com", label: "Gemini" },
+  openrouter: { type: "openrouter", baseUrl: "https://openrouter.ai/api/v1", label: "OpenRouter" },
+  groq: { type: "groq", baseUrl: "https://api.groq.com/openai/v1", label: "Groq" },
+  deepseek: { type: "deepseek", baseUrl: "https://api.deepseek.com/v1", label: "DeepSeek" },
+  xai: { type: "xai", baseUrl: "https://api.x.ai/v1", label: "xAI" },
+  mistral: { type: "mistral", baseUrl: "https://api.mistral.ai/v1", label: "Mistral" },
+  ollama: { type: "ollama", baseUrl: "http://localhost:11434/v1", label: "Ollama" },
+  lmstudio: { type: "lmstudio", baseUrl: "http://localhost:1234/v1", label: "LM Studio" },
+};
 
+// ==========================================
+// OpenAI Provider (via generic compatible adapter)
+// ==========================================
+export class OpenAIProvider extends OpenAICompatibleProvider {
+  override provider: ModelProvider = "openai";
   constructor(apiKey = process.env.OPENAI_API_KEY || "", baseUrl = "https://api.openai.com/v1") {
-    this.apiKey = apiKey;
-    this.baseUrl = baseUrl;
+    super({ apiKey, baseUrl, providerLabel: "openai" });
   }
-
-  async *chat(request: ChatRequest): AsyncIterable<AIEvent> {
-    if (!this.apiKey && !this.baseUrl.includes("localhost")) {
-      throw new Error("OpenAI API key is missing. Set OPENAI_API_KEY in environment or Settings.");
-    }
-
-    const body: Record<string, any> = {
-      model: request.model,
-      messages: request.messages.map((m) => {
-        if (m.role === "tool") {
-          return { role: "tool", tool_call_id: m.toolCallId, content: m.content };
-        }
-        if (m.role === "assistant" && m.toolCalls) {
-          return {
-            role: "assistant",
-            content: m.content || null,
-            tool_calls: m.toolCalls.map((tc) => ({
-              id: tc.id,
-              type: "function",
-              function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
-            })),
-          };
-        }
-        return { role: m.role, content: m.content };
-      }),
-      temperature: request.temperature ?? 0.7,
-      stream: true,
-    };
-
-    if (request.tools && request.tools.length > 0) {
-      body.tools = request.tools.map((t) => ({
-        type: "function",
-        function: {
-          name: t.name,
-          description: t.description,
-          parameters: t.parameters,
-        },
-      }));
-    }
-
-    const res = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`OpenAI API error [${res.status}]: ${err}`);
-    }
-
-    if (!res.body) return;
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    const toolCallsAccumulator: Record<number, { id: string; name: string; args: string }> = {};
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith("data: ")) continue;
-        const dataStr = trimmed.slice(6);
-        if (dataStr === "[DONE]") {
-          for (const tc of Object.values(toolCallsAccumulator)) {
-            let parsedArgs = {};
-            try {
-              parsedArgs = JSON.parse(tc.args);
-            } catch {
-              parsedArgs = { raw: tc.args };
-            }
-            yield { type: "tool_call", id: tc.id, name: tc.name, arguments: parsedArgs };
-          }
-          yield { type: "done" };
-          return;
-        }
-
-        try {
-          const parsed = JSON.parse(dataStr);
-          const choice = parsed.choices?.[0];
-          const delta = choice?.delta;
-
-          if (delta?.content) {
-            yield { type: "delta", content: delta.content };
-          }
-
-          if (delta?.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              const index = tc.index ?? 0;
-              if (!toolCallsAccumulator[index]) {
-                toolCallsAccumulator[index] = { id: tc.id || `call_${Date.now()}`, name: "", args: "" };
-              }
-              if (tc.function?.name) toolCallsAccumulator[index].name += tc.function.name;
-              if (tc.function?.arguments) toolCallsAccumulator[index].args += tc.function.arguments;
-            }
-          }
-        } catch {
-          // ignore parse errors on fragmented stream chunks
-        }
-      }
-    }
-  }
-
-  async models(): Promise<ModelInfo[]> {
+  override async models(): Promise<ModelInfo[]> {
+    try {
+      const ids = await this.fetchModelIds();
+      if (ids.length > 0) return ids.map((id) => ({ id, name: id, provider: "openai" as ModelProvider, contextWindow: 128000 }));
+    } catch { /* fall through to static */ }
     return [
       { id: "gpt-4o", name: "GPT-4o (Omni)", provider: "openai", contextWindow: 128000 },
       { id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai", contextWindow: 128000 },
-      { id: "o1-mini", name: "o1-mini (Reasoning)", provider: "openai", contextWindow: 128000 },
     ];
   }
 }
 
 // ==========================================
-// Google Gemini Provider
+// Google Gemini Provider (native API)
 // ==========================================
 export class GeminiProvider implements AIProvider {
   provider: ModelProvider = "gemini";
@@ -195,13 +69,12 @@ export class GeminiProvider implements AIProvider {
   async *chat(request: ChatRequest): AsyncIterable<AIEvent> {
     const key = this.apiKey || process.env.GEMINI_API_KEY || "";
     if (!key) {
-      throw new Error("Gemini API key is missing. Configure in environment or settings.");
+      throw providerError("PROVIDER_AUTH" as any, "Gemini API key is missing. Configure in providers settings.", { retryable: false });
     }
 
     const modelName = request.model.includes("gemini") ? request.model : "gemini-1.5-flash";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${key}&alt=sse`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${encodeURIComponent(key)}&alt=sse`;
 
-    // Format messages for Gemini
     const contents: Array<{ role: string; parts: Array<{ text?: string; functionCall?: any; functionResponse?: any }> }> = [];
     let systemInstruction: { parts: [{ text: string }] } | undefined;
 
@@ -222,124 +95,86 @@ export class GeminiProvider implements AIProvider {
       } else if (msg.role === "tool") {
         contents.push({
           role: "user",
-          parts: [
-            {
-              functionResponse: {
-                name: msg.name || "tool_result",
-                response: { content: msg.content },
-              },
-            },
-          ],
+          parts: [{ functionResponse: { name: msg.name || "tool_result", response: { content: msg.content } } }],
         });
       }
     }
 
     const body: Record<string, any> = { contents };
     if (systemInstruction) body.systemInstruction = systemInstruction;
-
     if (request.tools && request.tools.length > 0) {
-      body.tools = [
-        {
-          functionDeclarations: request.tools.map((t) => ({
-            name: t.name,
-            description: t.description,
-            parameters: t.parameters,
-          })),
-        },
-      ];
+      body.tools = [{ functionDeclarations: request.tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters })) }];
     }
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Gemini API error [${res.status}]: ${err}`);
-    }
-
+    const res = await withRetry(() => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }));
+    if (!res.ok) await throwForStatus(res, "gemini chat");
     if (!res.body) return;
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
-
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed || !trimmed.startsWith("data: ")) continue;
         const dataStr = trimmed.slice(6);
-
         try {
           const parsed = JSON.parse(dataStr);
           const candidate = parsed.candidates?.[0];
           const parts = candidate?.content?.parts;
-
           if (parts) {
             for (const part of parts) {
-              if (part.text) {
-                yield { type: "delta", content: part.text };
-              }
+              if (part.text) yield { type: "delta", content: part.text };
               if (part.functionCall) {
-                yield {
-                  type: "tool_call",
-                  id: `gemini_call_${Date.now()}`,
-                  name: part.functionCall.name,
-                  arguments: part.functionCall.args || {},
-                };
+                yield { type: "tool_call", id: `gemini_call_${Date.now()}_${Math.random().toString(36).slice(2)}`, name: part.functionCall.name, arguments: part.functionCall.args || {} };
               }
             }
           }
-        } catch {
-          // ignore stream parse errors
-        }
+          if (parsed.usageMetadata) {
+            yield { type: "usage", promptTokens: parsed.usageMetadata.promptTokenCount ?? 0, completionTokens: parsed.usageMetadata.candidatesTokenCount ?? 0, totalTokens: parsed.usageMetadata.totalTokenCount ?? 0 };
+          }
+        } catch { /* ignore */ }
       }
     }
-
     yield { type: "done" };
   }
 
   async models(): Promise<ModelInfo[]> {
     return [
-      { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash (Fast & Capable)", provider: "gemini", contextWindow: 1000000 },
-      { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro (Deep Reasoning)", provider: "gemini", contextWindow: 2000000 },
-      { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash (Next-Gen)", provider: "gemini", contextWindow: 1000000 },
+      { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", provider: "gemini", contextWindow: 1000000 },
+      { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", provider: "gemini", contextWindow: 2000000 },
+      { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", provider: "gemini", contextWindow: 1000000 },
     ];
   }
 }
 
 // ==========================================
-// Anthropic Claude Provider
+// Anthropic Claude Provider (native Messages API, tool_use fixed)
 // ==========================================
 export class ClaudeProvider implements AIProvider {
   provider: ModelProvider = "anthropic";
   private apiKey: string;
+  private baseUrl: string;
 
-  constructor(apiKey = process.env.ANTHROPIC_API_KEY || "") {
+  constructor(apiKey = process.env.ANTHROPIC_API_KEY || "", baseUrl = "https://api.anthropic.com") {
     this.apiKey = apiKey;
+    this.baseUrl = baseUrl.replace(/\/+$/, "");
   }
 
   async *chat(request: ChatRequest): AsyncIterable<AIEvent> {
     if (!this.apiKey) {
-      throw new Error("Anthropic API key is missing. Set ANTHROPIC_API_KEY in environment or Settings.");
+      throw providerError("PROVIDER_AUTH" as any, "Anthropic API key is missing. Configure in providers settings.", { retryable: false });
     }
 
     const systemMessages = request.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
     const chatMessages = request.messages
       .filter((m) => m.role !== "system")
-      .map((m) => ({
-        role: m.role === "tool" ? "user" : m.role,
-        content: m.content,
-      }));
+      .map((m) => ({ role: m.role === "tool" ? "user" : m.role, content: m.content }));
 
     const body: Record<string, any> = {
       model: request.model.includes("claude") ? request.model : "claude-3-5-sonnet-20241022",
@@ -348,53 +183,69 @@ export class ClaudeProvider implements AIProvider {
       stream: true,
     };
     if (systemMessages) body.system = systemMessages;
-
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": this.apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Anthropic Claude API error [${res.status}]: ${err}`);
+    if (request.tools && request.tools.length > 0) {
+      body.tools = request.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters }));
     }
 
+    const res = await withRetry(() =>
+      fetch(`${this.baseUrl}/v1/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": this.apiKey, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify(body),
+      })
+    );
+    if (!res.ok) await throwForStatus(res, "anthropic chat");
     if (!res.body) return;
+
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    // Anthropic SSE: event: <type>\ndata: <json>
+    let pendingEvent = "";
+    const toolBlocks: Record<number, { id: string; name: string; json: string }> = {};
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
-
       for (const line of lines) {
         const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith("data: ")) continue;
-        const dataStr = trimmed.slice(6);
-
+        if (trimmed.startsWith("event:")) {
+          pendingEvent = trimmed.slice(6).trim();
+          continue;
+        }
+        if (!trimmed.startsWith("data:")) continue;
+        const dataStr = trimmed.slice(5).trim();
         try {
           const parsed = JSON.parse(dataStr);
-          if (parsed.type === "content_block_delta" && parsed.delta?.text) {
+          const evt = parsed.type || pendingEvent;
+          if (evt === "content_block_delta" && parsed.delta?.text) {
             yield { type: "delta", content: parsed.delta.text };
-          }
-          if (parsed.type === "message_stop") {
+          } else if (evt === "content_block_start" && parsed.content_block?.type === "tool_use") {
+            const idx = parsed.index ?? 0;
+            toolBlocks[idx] = { id: parsed.content_block.id, name: parsed.content_block.name, json: "" };
+          } else if (evt === "content_block_delta" && parsed.delta?.type === "input_json_delta") {
+            const idx = parsed.index ?? 0;
+            if (!toolBlocks[idx]) toolBlocks[idx] = { id: `claude_${Date.now()}_${idx}`, name: "", json: "" };
+            toolBlocks[idx].json += parsed.delta.partial_json || "";
+          } else if (evt === "message_stop") {
+            for (const tb of Object.values(toolBlocks)) {
+              let args: Record<string, any> = {};
+              try { args = tb.json ? JSON.parse(tb.json) : {}; } catch { args = { raw: tb.json }; }
+              if (tb.name) yield { type: "tool_call", id: tb.id, name: tb.name, arguments: args };
+            }
             yield { type: "done" };
             return;
           }
-        } catch {
-          // ignore stream parse errors
-        }
+        } catch { /* ignore */ }
       }
+    }
+    for (const tb of Object.values(toolBlocks)) {
+      let args: Record<string, any> = {};
+      try { args = tb.json ? JSON.parse(tb.json) : {}; } catch { args = { raw: tb.json }; }
+      if (tb.name) yield { type: "tool_call", id: tb.id, name: tb.name, arguments: args };
     }
   }
 
@@ -407,43 +258,93 @@ export class ClaudeProvider implements AIProvider {
 }
 
 // ==========================================
-// xAI Grok Provider
+// xAI Grok Provider (OpenAI-compatible)
 // ==========================================
-export class GrokProvider extends OpenAIProvider {
+export class GrokProvider extends OpenAICompatibleProvider {
   override provider: ModelProvider = "grok";
   constructor(apiKey = process.env.XAI_API_KEY || "") {
-    super(apiKey, "https://api.x.ai/v1");
+    super({ apiKey, baseUrl: "https://api.x.ai/v1", providerLabel: "grok" });
   }
-
   override async models(): Promise<ModelInfo[]> {
-    return [
-      { id: "grok-2-latest", name: "Grok 2 (xAI)", provider: "grok", contextWindow: 128000 },
-      { id: "grok-beta", name: "Grok Beta", provider: "grok", contextWindow: 128000 },
-    ];
+    try {
+      const ids = await this.fetchModelIds();
+      if (ids.length > 0) return ids.map((id) => ({ id, name: id, provider: "grok" as ModelProvider, contextWindow: 128000 }));
+    } catch { /* static fallback */ }
+    return [{ id: "grok-2-latest", name: "Grok 2 (xAI)", provider: "grok", contextWindow: 128000 }];
   }
 }
 
 // ==========================================
-// Local / OpenAI-Compatible Provider
+// Local / Ollama Provider (OpenAI-compatible)
 // ==========================================
-export class LocalProvider extends OpenAIProvider {
+export class LocalProvider extends OpenAICompatibleProvider {
   override provider: ModelProvider = "local";
   constructor(baseUrl = process.env.LOCAL_AI_BASE_URL || "http://localhost:11434/v1") {
-    super("local", baseUrl);
+    super({ apiKey: "local", baseUrl, providerLabel: "local" });
   }
-
   override async models(): Promise<ModelInfo[]> {
-    return [
-      { id: "llama3.2:latest", name: "Llama 3.2 (Local)", provider: "local", contextWindow: 128000 },
-      { id: "qwen2.5-coder:latest", name: "Qwen 2.5 Coder (Local)", provider: "local", contextWindow: 128000 },
-    ];
+    try {
+      const ids = await this.fetchModelIds();
+      if (ids.length > 0) return ids.map((id) => ({ id, name: id, provider: "local" as ModelProvider, contextWindow: 128000 }));
+    } catch { /* static fallback */ }
+    return [{ id: "llama3.2:latest", name: "Llama 3.2 (Local)", provider: "local", contextWindow: 128000 }];
   }
 }
 
 // ==========================================
-// AI Router with Failover & Fallback
+// Provider Registry + Factory (DB-backed, no if/else sprawl)
 // ==========================================
-export class AIRouter {
+export interface RuntimeProviderConfig {
+  id: string;
+  name: string;
+  type: string;
+  baseUrl: string;
+  apiKey: string;
+  defaultModel: string;
+  customHeaders?: Record<string, string>;
+  timeoutMs?: number;
+  organizationId?: string;
+  projectId?: string;
+}
+
+export class AIProviderFactory {
+  static create(config: RuntimeProviderConfig): AIProvider {
+    const t = (config.type || "openai_compatible").toLowerCase();
+    switch (t) {
+      case "anthropic":
+        return new ClaudeProvider(config.apiKey, config.baseUrl || "https://api.anthropic.com");
+      case "gemini":
+        return new GeminiProvider(config.apiKey);
+      case "openai":
+        return new OpenAIProvider(config.apiKey, config.baseUrl || "https://api.openai.com/v1");
+      case "xai":
+        return new GrokProvider(config.apiKey);
+      case "groq":
+      case "mistral":
+      case "openrouter":
+      case "deepseek":
+      case "ollama":
+      case "lmstudio":
+      case "custom":
+      case "openai_compatible":
+      default:
+        return new OpenAICompatibleProvider({
+          apiKey: config.apiKey,
+          baseUrl: config.baseUrl,
+          defaultModel: config.defaultModel,
+          customHeaders: config.customHeaders,
+          timeoutMs: config.timeoutMs,
+          providerLabel: config.name || t,
+        });
+    }
+  }
+
+  static defaultBaseUrlFor(type: string): string {
+    return PROVIDER_PRESETS[type?.toLowerCase()]?.baseUrl || "";
+  }
+}
+
+export class AIProviderRegistry {
   private providers: Map<ModelProvider, AIProvider> = new Map();
 
   constructor() {
@@ -458,10 +359,58 @@ export class AIRouter {
     this.providers.set(provider.provider, provider);
   }
 
+  registerRuntime(id: string, provider: AIProvider) {
+    this.providers.set(id as ModelProvider, provider);
+  }
+
   getProvider(provider: ModelProvider): AIProvider {
     const p = this.providers.get(provider);
     if (!p) throw new Error(`Provider '${provider}' not registered.`);
     return p;
+  }
+
+  /** Build a runtime instance from a DB provider config (decrypted key passed in). */
+  providerForConfig(config: RuntimeProviderConfig): AIProvider {
+    return AIProviderFactory.create(config);
+  }
+}
+
+// ==========================================
+// AI Router with Failover (env providers + dynamic registry)
+// ==========================================
+export class AIRouter {
+  private registry = new AIProviderRegistry();
+
+  registerProvider(provider: AIProvider) {
+    this.registry.registerProvider(provider);
+  }
+
+  getProvider(provider: ModelProvider): AIProvider {
+    return this.registry.getProvider(provider);
+  }
+
+  get registryRef(): AIProviderRegistry {
+    return this.registry;
+  }
+
+  /** Chat using a pre-built runtime provider instance (DB-backed path). */
+  async *chatWithInstance(
+    provider: AIProvider,
+    request: ChatRequest,
+    fallback?: { provider: AIProvider; model?: string; onFailover?: (err: Error) => void }
+  ): AsyncIterable<AIEvent> {
+    try {
+      for await (const event of provider.chat(request)) yield event;
+    } catch (err: any) {
+      const retryable = err?.retryable !== false && err?.kind !== "PROVIDER_AUTH" && err?.kind !== "INVALID_MODEL" && err?.kind !== "INVALID_REQUEST";
+      if (fallback && retryable) {
+        fallback.onFailover?.(err);
+        const fbRequest = { ...request, model: fallback.model || request.model };
+        for await (const event of fallback.provider.chat(fbRequest)) yield event;
+      } else {
+        throw err;
+      }
+    }
   }
 
   async *chatWithFailover(
@@ -472,17 +421,13 @@ export class AIRouter {
   ): AsyncIterable<AIEvent> {
     try {
       const provider = this.getProvider(primaryProvider);
-      for await (const event of provider.chat(request)) {
-        yield event;
-      }
+      for await (const event of provider.chat(request)) yield event;
     } catch (err: any) {
       if (fallbackProvider && fallbackProvider !== primaryProvider) {
-        console.warn(`[AIRouter] Primary provider ${primaryProvider} failed: ${err.message}. Failing over to ${fallbackProvider}`);
-        const fallback = this.getProvider(fallbackProvider);
+        console.warn(`[AIRouter] Primary ${primaryProvider} failed: ${err.message}. Failing over to ${fallbackProvider}`);
+        const fb = this.getProvider(fallbackProvider);
         const fbRequest = { ...request, model: fallbackModel || request.model };
-        for await (const event of fallback.chat(fbRequest)) {
-          yield event;
-        }
+        for await (const event of fb.chat(fbRequest)) yield event;
       } else {
         throw err;
       }
@@ -491,13 +436,10 @@ export class AIRouter {
 
   async listAllModels(): Promise<ModelInfo[]> {
     const list: ModelInfo[] = [];
-    for (const p of this.providers.values()) {
+    for (const name of ["gemini", "openai", "anthropic", "grok", "local"] as ModelProvider[]) {
       try {
-        const models = await p.models();
-        list.push(...models);
-      } catch {
-        // ignore provider model listing failures
-      }
+        list.push(...(await this.getProvider(name).models()));
+      } catch { /* ignore */ }
     }
     return list;
   }

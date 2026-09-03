@@ -6,8 +6,10 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 /**
- * Main Room database for AgentForge, storing local agents, conversations,
- * chat messages, approval requests, execution logs, and live agent execution states.
+ * Main Room database for AgentForge — local-first single source of truth.
+ * v3 adds: providers, models, runs, events, tools, automations, memories,
+ * files, computer sessions, connection profiles, settings.
+ * Uses MIGRATION_2_3 (no destructive migration in production).
  */
 @Database(
     entities = [
@@ -16,9 +18,21 @@ import androidx.room.RoomDatabase
         MessageEntity::class,
         ApprovalEntity::class,
         ExecutionLogEntity::class,
-        AgentStateEntity::class
+        AgentStateEntity::class,
+        AIProviderEntity::class,
+        ProviderModelEntity::class,
+        RunEntity::class,
+        RunEventEntity::class,
+        ToolCallEntity::class,
+        AutomationEntity::class,
+        AutomationRunEntity::class,
+        MemoryEntity::class,
+        FileEntity::class,
+        ComputerSessionEntity::class,
+        ConnectionProfileEntity::class,
+        AppSettingEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AgentDatabase : RoomDatabase() {
@@ -28,6 +42,18 @@ abstract class AgentDatabase : RoomDatabase() {
     abstract fun approvalDao(): ApprovalDao
     abstract fun executionLogDao(): ExecutionLogDao
     abstract fun agentStateDao(): AgentStateDao
+    abstract fun providerDao(): ProviderDao
+    abstract fun providerModelDao(): ProviderModelDao
+    abstract fun runDao(): RunDao
+    abstract fun runEventDao(): RunEventDao
+    abstract fun toolCallDao(): ToolCallDao
+    abstract fun automationDao(): AutomationDao
+    abstract fun automationRunDao(): AutomationRunDao
+    abstract fun memoryDao(): MemoryDao
+    abstract fun fileDao(): FileDao
+    abstract fun computerSessionDao(): ComputerSessionDao
+    abstract fun connectionProfileDao(): ConnectionProfileDao
+    abstract fun appSettingDao(): AppSettingDao
 
     companion object {
         const val DATABASE_NAME = "agentforge_local_db"
@@ -42,7 +68,7 @@ abstract class AgentDatabase : RoomDatabase() {
                     AgentDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(MIGRATION_2_3)
                     .build()
                 INSTANCE = instance
                 instance
